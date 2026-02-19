@@ -1,0 +1,927 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"steamforge/internal/logging"
+	"steamforge/internal/models"
+	"steamforge/internal/services"
+	"steamforge/internal/settings"
+	"steamforge/internal/steam"
+
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+// Version is set via ldflags at build time (e.g. -X main.Version=v1.0.0).
+var Version = "dev"
+
+var errNotConnected = errors.New("not connected to Steam")
+
+type App struct {
+	ctx context.Context
+
+	mu             sync.RWMutex
+	steamClient    *steam.Client
+	gameService    *services.GameService
+	achieveService *services.AchievementService
+	imageService   *services.ImageService
+
+	scanCancel context.CancelFunc
+	scanDone   chan struct{}
+}
+
+func NewApp() *App {
+	return &App{}
+}
+
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	settings.Load()
+
+	cacheDir := filepath.Join(os.TempDir(), "steamforge", "cache")
+	imageService, err := services.NewImageService(cacheDir)
+	if err != nil {
+		slog.Warn("image service init failed", "error", err)
+	} else {
+		imageService.SetContext(ctx)
+		a.mu.Lock()
+		a.imageService = imageService
+		a.mu.Unlock()
+	}
+
+	slog.Info("startup complete")
+}
+
+func (a *App) shutdown(ctx context.Context) {
+	a.stopScan()
+
+	a.mu.RLock()
+	client := a.steamClient
+	a.mu.RUnlock()
+
+	if client != nil {
+		done := make(chan struct{})
+		go func() {
+			client.Close()
+			close(done)
+		}()
+		select {
+		case <-done:
+			slog.Info("Steam client closed")
+		case <-ctx.Done():
+			slog.Warn("shutdown timed out waiting for Steam client close")
+		case <-time.After(5 * time.Second):
+			slog.Warn("Steam client close timed out after 5s")
+		}
+	}
+}
+
+// initClient creates a new Steam client with associated services.
+// Returns the client, game service, and achievement service.
+func (a *App) initClient(appID uint32) (*steam.Client, *services.GameService, *services.AchievementService, error) {
+	client, err := steam.NewClient(appID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	client.StartCallbackLoop()
+
+	gameService := services.NewGameService(client)
+	gameService.SetContext(a.ctx)
+
+	achieveService := services.NewAchievementService(client)
+	achieveService.SetContext(a.ctx)
+
+	return client, gameService, achieveService, nil
+}
+
+func (a *App) ConnectSteam() (uint64, error) {
+	a.mu.RLock()
+	existing := a.steamClient
+	a.mu.RUnlock()
+
+	if existing != nil {
+		return existing.SteamID(), nil
+	}
+
+	slog.Info("connecting to Steam")
+	client, gameService, achieveService, err := a.initClient(0)
+	if err != nil {
+		slog.Error("Steam connection failed", "error", err)
+		return 0, fmt.Errorf("connect to Steam: %w", err)
+	}
+
+	a.mu.Lock()
+	a.steamClient = client
+	a.gameService = gameService
+	a.achieveService = achieveService
+	a.mu.Unlock()
+
+	slog.Info("Steam connected", "steamID", client.SteamID())
+	settings.SetCurrentUser(client.SteamID())
+	return client.SteamID(), nil
+}
+
+func (a *App) IsConnected() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.steamClient != nil
+}
+
+func (a *App) reconnectForGame(appID uint32) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.steamClient != nil && a.steamClient.CurrentAppID == appID {
+		return nil
+	}
+
+	start := time.Now()
+	slog.Info("reconnecting for game", "appID", appID)
+
+	if a.steamClient != nil {
+		a.steamClient.Close()
+		a.steamClient = nil
+		a.achieveService = nil
+	}
+
+	client, gameService, achieveService, err := a.initClient(appID)
+	if err != nil {
+		slog.Error("reconnect failed", "appID", appID, "error", err)
+		return fmt.Errorf("reconnect for app %d: %w", appID, err)
+	}
+
+	a.steamClient = client
+	a.gameService = gameService
+	a.achieveService = achieveService
+
+	slog.Info("reconnected", "appID", appID, "elapsed", time.Since(start))
+	return nil
+}
+
+func (a *App) DisconnectGame() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.steamClient == nil || a.steamClient.CurrentAppID == 0 {
+		return nil
+	}
+
+	slog.Info("disconnecting from game", "appID", a.steamClient.CurrentAppID)
+
+	a.steamClient.Close()
+	a.steamClient = nil
+	a.achieveService = nil
+
+	client, gameService, _, err := a.initClient(0)
+	if err != nil {
+		slog.Error("reconnect after disconnect failed", "error", err)
+		return fmt.Errorf("reconnect: %w", err)
+	}
+
+	a.steamClient = client
+	a.gameService = gameService
+
+	slog.Info("disconnected from game, reconnected with appID=0")
+	return nil
+}
+
+func (a *App) FetchGames() ([]models.GameInfo, error) {
+	if a.stopScan() {
+		a.restoreBaseConnection()
+	}
+
+	a.mu.RLock()
+	gameService := a.gameService
+	a.mu.RUnlock()
+
+	if gameService == nil {
+		return nil, errNotConnected
+	}
+	return gameService.FetchGames()
+}
+
+func (a *App) SearchGames(query string) []models.GameInfo {
+	a.mu.RLock()
+	gameService := a.gameService
+	a.mu.RUnlock()
+
+	if gameService == nil {
+		return nil
+	}
+	return gameService.SearchGames(query)
+}
+
+// LoadAchievementsFromSchema fetches full achievement data from the Steam community profile.
+// No client reconnect needed — works for any public profile.
+// Falls back to local schema files if the community endpoint fails.
+func (a *App) LoadAchievementsFromSchema(appID uint32) ([]models.Achievement, error) {
+	a.mu.RLock()
+	client := a.steamClient
+	a.mu.RUnlock()
+
+	if client == nil {
+		return nil, errNotConnected
+	}
+
+	// Try community profile first — has names, descriptions, icons, unlock status
+	webAPI := services.NewSteamWebAPI(client.SteamID(), a.ctx)
+	achievements, err := webAPI.GetFullAchievements(appID)
+	if err == nil && len(achievements) > 0 {
+		achieved := 0
+		for _, achievement := range achievements {
+			if achievement.IsAchieved {
+				achieved++
+			}
+		}
+		settings.SaveAchievementCounts(appID, achieved, len(achievements))
+		return achievements, nil
+	}
+	if err != nil {
+		slog.Debug("community profile fetch failed", "appID", appID, "error", err)
+	}
+
+	// Community failed or returned empty — check local schema before falling through to SDK
+	if total, hasSchema := services.HasAchievementsFromSchema(appID); hasSchema && total == 0 {
+		slog.Debug("schema confirms 0 achievements", "appID", appID)
+		settings.SaveAchievementCounts(appID, 0, 0)
+		return []models.Achievement{}, nil
+	}
+
+	// Neither community nor schema could confirm — error so frontend can try SDK
+	return nil, fmt.Errorf("community profile unavailable: %w", err)
+}
+
+// LoadAchievements connects to Steam as the game and loads full achievement data.
+// This is needed for editing achievements (set/clear).
+func (a *App) LoadAchievements(appID uint32) ([]models.Achievement, error) {
+	if err := a.reconnectForGame(appID); err != nil {
+		return nil, err
+	}
+
+	a.mu.RLock()
+	achievementService := a.achieveService
+	client := a.steamClient
+	a.mu.RUnlock()
+
+	if achievementService == nil {
+		return nil, errNotConnected
+	}
+	result, err := achievementService.LoadAchievements(appID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fill in missing percent data from the web API
+	needsPercent := false
+	for _, ach := range result {
+		if ach.Percent == 0 {
+			needsPercent = true
+			break
+		}
+	}
+	if needsPercent && client != nil {
+		webAPI := services.NewSteamWebAPI(client.SteamID(), a.ctx)
+		percents := webAPI.GetGlobalPercents(appID)
+		if len(percents) > 0 {
+			for i := range result {
+				if result[i].Percent == 0 {
+					if p, ok := percents[result[i].ID]; ok {
+						result[i].Percent = p
+					}
+				}
+			}
+		}
+	}
+
+	cacheAchievementCounts(appID, result)
+	return result, nil
+}
+
+func (a *App) GetAchievements() []models.Achievement {
+	a.mu.RLock()
+	achievementService := a.achieveService
+	a.mu.RUnlock()
+
+	if achievementService == nil {
+		return nil
+	}
+	return achievementService.GetAchievements()
+}
+
+func (a *App) SetAchievement(name string) (bool, error) {
+	a.mu.RLock()
+	achievementService := a.achieveService
+	a.mu.RUnlock()
+
+	if achievementService == nil {
+		return false, errNotConnected
+	}
+	return achievementService.SetAchievement(name)
+}
+
+func (a *App) ClearAchievement(name string) (bool, error) {
+	a.mu.RLock()
+	achievementService := a.achieveService
+	a.mu.RUnlock()
+
+	if achievementService == nil {
+		return false, errNotConnected
+	}
+	return achievementService.ClearAchievement(name)
+}
+
+func (a *App) SetAllAchievements() (int, error) {
+	a.mu.RLock()
+	achievementService := a.achieveService
+	a.mu.RUnlock()
+
+	if achievementService == nil {
+		return 0, errNotConnected
+	}
+	return achievementService.SetAllAchievements()
+}
+
+func (a *App) ClearAllAchievements() (int, error) {
+	a.mu.RLock()
+	achievementService := a.achieveService
+	a.mu.RUnlock()
+
+	if achievementService == nil {
+		return 0, errNotConnected
+	}
+	return achievementService.ClearAllAchievements()
+}
+
+func (a *App) StoreStats() (bool, error) {
+	a.mu.RLock()
+	achievementService := a.achieveService
+	client := a.steamClient
+	a.mu.RUnlock()
+
+	if achievementService == nil {
+		return false, errNotConnected
+	}
+	ok, err := achievementService.StoreStats()
+	if err != nil {
+		return ok, err
+	}
+
+	if ok && client != nil {
+		cacheAchievementCounts(client.CurrentAppID, achievementService.GetAchievements())
+	}
+	return ok, nil
+}
+
+func (a *App) GetAchievementCounts() map[uint32]settings.AchievementCount {
+	return settings.LoadAchievementCache()
+}
+
+func (a *App) GetSettings() settings.Settings {
+	return settings.Get()
+}
+
+func (a *App) SaveSettings(newSettings settings.Settings) error {
+	return settings.Save(newSettings)
+}
+
+func (a *App) GetDataDir() string {
+	return settings.DataDir()
+}
+
+// OpenDataDir opens the data directory in the OS file manager.
+func (a *App) OpenDataDir() error {
+	dir := settings.DataDir()
+	if dir == "" {
+		return errors.New("data directory not set")
+	}
+	return exec.Command("explorer", dir).Start()
+}
+
+// GetLogContent returns the contents of the current session's log file.
+func (a *App) GetLogContent() (string, error) {
+	return logging.ReadLog()
+}
+
+// CheckProfileVisibility checks if the user's Steam community profile is public.
+// No API key needed — uses the Steam community XML endpoint.
+func (a *App) CheckProfileVisibility() (string, error) {
+	a.mu.RLock()
+	client := a.steamClient
+	a.mu.RUnlock()
+	if client == nil {
+		return "", errNotConnected
+	}
+
+	webAPI := services.NewSteamWebAPI(client.SteamID(), a.ctx)
+	return webAPI.CheckProfileVisibility()
+}
+
+// FetchGlobalPercents returns global unlock percentages for a game.
+// Used by the frontend to poll for rarity data independently of achievement loading.
+func (a *App) FetchGlobalPercents(appID uint32) (map[string]float32, error) {
+	a.mu.RLock()
+	client := a.steamClient
+	a.mu.RUnlock()
+	if client == nil {
+		return nil, errNotConnected
+	}
+
+	webAPI := services.NewSteamWebAPI(client.SteamID(), a.ctx)
+	percents := webAPI.GetGlobalPercents(appID)
+	if percents == nil {
+		return nil, fmt.Errorf("failed to fetch percentages for app %d", appID)
+	}
+	return percents, nil
+}
+
+// CheckGameEarlyAccess checks if a game is in Early Access via the Steam Store API
+// and caches the result in the achievement counts.
+func (a *App) CheckGameEarlyAccess(appID uint32) (bool, error) {
+	a.mu.RLock()
+	client := a.steamClient
+	a.mu.RUnlock()
+	if client == nil {
+		return false, errNotConnected
+	}
+
+	webAPI := services.NewSteamWebAPI(client.SteamID(), a.ctx)
+	earlyAccess := webAPI.CheckEarlyAccess(appID)
+
+	// Persist the earlyAccess flag in the achievement cache
+	cached := settings.LoadAchievementCache()
+	if entry, ok := cached[appID]; ok {
+		settings.SaveAchievementCountsEarlyAccess(appID, entry.Achieved, entry.Total, earlyAccess)
+	} else {
+		settings.SaveAchievementCountsEarlyAccess(appID, 0, 0, earlyAccess)
+	}
+
+	return earlyAccess, nil
+}
+
+func (a *App) GetImageBase64(url string) (string, error) {
+	a.mu.RLock()
+	imageService := a.imageService
+	a.mu.RUnlock()
+
+	if imageService == nil {
+		return "", fmt.Errorf("image service not available")
+	}
+	return imageService.GetImageBase64(url)
+}
+
+func (a *App) ScanAchievementCounts() {
+	a.stopScan()
+
+	a.mu.RLock()
+	gameService := a.gameService
+	a.mu.RUnlock()
+	if gameService == nil {
+		return
+	}
+
+	allGames := gameService.SearchGames("")
+	// Purge entries that may have been incorrectly cached as 0/0 due to rate limiting.
+	// Legitimate 0-achievement games will be re-confirmed on this scan.
+	settings.PurgeSuspectCacheEntries()
+	cached := settings.LoadAchievementCache()
+	lastScanTime := settings.Get().LastScanTime
+	var toScan []models.GameInfo
+	for _, game := range allGames {
+		if game.IsSoftware {
+			continue
+		}
+		if _, ok := cached[game.AppID]; !ok {
+			// Never scanned
+			toScan = append(toScan, game)
+		} else if lastScanTime > 0 && game.LastPlayed > 0 && int64(game.LastPlayed) > lastScanTime {
+			// Played since last scan — rescan for updated achievement data
+			toScan = append(toScan, game)
+		}
+	}
+
+	if len(toScan) == 0 {
+		return
+	}
+
+	// Scan installed games first so the user sees results for games they care about.
+	sort.SliceStable(toScan, func(first, second int) bool {
+		return toScan[first].Installed && !toScan[second].Installed
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	a.mu.Lock()
+	a.scanCancel = cancel
+	a.scanDone = done
+	a.mu.Unlock()
+
+	slog.Info("starting achievement scan", "games", len(toScan))
+
+	go func() {
+		defer close(done)
+		a.runAchievementScan(ctx, toScan, cached)
+	}()
+}
+
+func (a *App) RescanAllAchievements() {
+	settings.ClearNonPerfectedCache()
+	a.ScanAchievementCounts()
+}
+
+func (a *App) StopAchievementScan() {
+	a.stopScan()
+}
+
+func (a *App) stopScan() bool {
+	a.mu.Lock()
+	cancel := a.scanCancel
+	done := a.scanDone
+	a.scanCancel = nil
+	a.scanDone = nil
+	a.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			slog.Warn("scan shutdown timed out")
+		}
+		return true
+	}
+	return false
+}
+
+func (a *App) restoreBaseConnection() {
+	a.mu.Lock()
+	oldClient := a.steamClient
+	a.steamClient = nil
+	a.achieveService = nil
+	a.mu.Unlock()
+
+	if oldClient != nil {
+		oldClient.Close()
+	}
+
+	client, gameService, _, err := a.initClient(0)
+	if err != nil {
+		slog.Error("failed to restore base connection", "error", err)
+		return
+	}
+
+	a.mu.Lock()
+	a.steamClient = client
+	a.gameService = gameService
+	a.mu.Unlock()
+}
+
+func (a *App) runAchievementScan(ctx context.Context, gamesToScan []models.GameInfo, cached map[uint32]settings.AchievementCount) {
+	totalGames := len(gamesToScan)
+
+	// Step 1: Local resolution — use schema + local stats to resolve as many games as
+	// possible without any network calls. Only games with no schema at all need the web API.
+	a.mu.RLock()
+	client := a.steamClient
+	a.mu.RUnlock()
+
+	var localCounts map[uint32]int
+	if client != nil {
+		localCounts = steam.ScanLocalAchievementCounts(client.SteamID())
+	}
+
+	var remaining []models.GameInfo
+	schemaResolved := 0
+	localResolved := 0
+	for _, game := range gamesToScan {
+		total, hasSchema := services.HasAchievementsFromSchema(game.AppID)
+		if !hasSchema {
+			// No schema — need web API to determine achievement count
+			remaining = append(remaining, game)
+			continue
+		}
+		if total == 0 {
+			// Schema confirms no achievements — check if cache already has earlyAccess info
+			if existing, ok := cached[game.AppID]; ok {
+				settings.SaveAchievementCountsEarlyAccess(game.AppID, 0, 0, existing.EarlyAccess)
+				schemaResolved++
+				wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
+					"appId":       game.AppID,
+					"achieved":    0,
+					"total":       0,
+					"earlyAccess": existing.EarlyAccess,
+				})
+			} else {
+				// Never checked — send to web API for earlyAccess determination
+				remaining = append(remaining, game)
+			}
+			continue
+		}
+		// Schema shows achievements exist — check local stats for achieved count
+		achieved, hasLocal := localCounts[game.AppID]
+		if hasLocal {
+			settings.SaveAchievementCounts(game.AppID, achieved, total)
+			localResolved++
+			wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
+				"appId":    game.AppID,
+				"achieved": achieved,
+				"total":    total,
+			})
+		} else {
+			// Schema has total but no local stats — cache as unknown achieved
+			settings.SaveAchievementCounts(game.AppID, -1, total)
+			schemaResolved++
+			wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
+				"appId":    game.AppID,
+				"achieved": -1,
+				"total":    total,
+			})
+		}
+	}
+	slog.Info("local resolution done",
+		"schemaResolved", schemaResolved, "localResolved", localResolved,
+		"remaining", len(remaining), "total", totalGames)
+
+	// Step 2: Web API — only for games without a schema file.
+	// No API key needed, works for public profiles.
+	if client != nil && len(remaining) > 0 {
+		webAPI := services.NewSteamWebAPI(client.SteamID(), ctx)
+		a.runWebAPIScan(ctx, webAPI, remaining, schemaResolved+localResolved, totalGames)
+		return
+	}
+
+	// No client or no games remaining
+	a.finalizeScan()
+}
+
+type scanResult struct {
+	game     models.GameInfo
+	achieved int
+	total    int
+	err      error
+}
+
+const scanWorkers = 3
+
+// isTransientError returns true for errors that may resolve on retry
+// (rate limits, server errors, network issues, XML parse failures from HTML responses).
+func isTransientError(errMsg string) bool {
+	return strings.Contains(errMsg, "parse xml") ||
+		strings.Contains(errMsg, "community endpoint returned HTTP") ||
+		strings.Contains(errMsg, "community request:")
+}
+
+// fetchWithRetry fetches achievement counts for a single game with exponential backoff.
+// Retries transient errors (rate limits, network issues) up to 3 times.
+// Returns immediately for permanent errors (private profile, no stats for game).
+func fetchWithRetry(ctx context.Context, webAPI *services.SteamWebAPI, appID uint32, rateLimiter *time.Ticker) (int, int, error) {
+	var achieved, total int
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		select {
+		case <-ctx.Done():
+			return 0, 0, ctx.Err()
+		case <-rateLimiter.C:
+		}
+		achieved, total, err = webAPI.GetPlayerAchievements(appID)
+		if err == nil {
+			return achieved, total, nil
+		}
+		errorMessage := err.Error()
+		// Permanent errors — no point retrying
+		if !isTransientError(errorMessage) {
+			return 0, 0, err
+		}
+		backoff := time.Duration(500<<attempt) * time.Millisecond
+		slog.Debug("scan retry", "appID", appID, "attempt", attempt+1, "backoff", backoff)
+		select {
+		case <-ctx.Done():
+			return 0, 0, ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return achieved, total, err
+}
+
+func (a *App) runWebAPIScan(ctx context.Context, webAPI *services.SteamWebAPI, games []models.GameInfo, offset, totalGames int) {
+	jobs := make(chan models.GameInfo, scanWorkers)
+	results := make(chan scanResult, scanWorkers)
+	var privateFlag atomic.Bool
+
+	// Rate limiter: 1 request per 500ms across all workers (~2 req/sec)
+	rateLimiter := time.NewTicker(500 * time.Millisecond)
+	defer rateLimiter.Stop()
+
+	// Launch workers
+	var wg sync.WaitGroup
+	for worker := 0; worker < scanWorkers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for game := range jobs {
+				if privateFlag.Load() {
+					results <- scanResult{game: game, err: fmt.Errorf("skipped: private")}
+					continue
+				}
+				achieved, total, err := fetchWithRetry(ctx, webAPI, game.AppID, rateLimiter)
+				results <- scanResult{game: game, achieved: achieved, total: total, err: err}
+			}
+		}()
+	}
+
+	// Feed jobs in a separate goroutine
+	go func() {
+		for _, game := range games {
+			select {
+			case <-ctx.Done():
+				close(jobs)
+				return
+			case jobs <- game:
+			}
+		}
+		close(jobs)
+	}()
+
+	// Close results when all workers finish
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	scanned := 0
+	for result := range results {
+		select {
+		case <-ctx.Done():
+			slog.Info("web api scan cancelled", "scanned", scanned, "total", len(games))
+			wailsRuntime.EventsEmit(a.ctx, "scan-complete", nil)
+			return
+		default:
+		}
+
+		scanned++
+		wailsRuntime.EventsEmit(a.ctx, "scan-progress", map[string]any{
+			"current": offset + scanned,
+			"total":   totalGames,
+			"appId":   result.game.AppID,
+			"name":    result.game.Name,
+		})
+
+		if result.err != nil {
+			errorMessage := result.err.Error()
+			slog.Debug("web api scan error", "appID", result.game.AppID, "error", errorMessage)
+
+			if strings.Contains(errorMessage, "private") || strings.Contains(errorMessage, "friendsonly") {
+				if privateFlag.CompareAndSwap(false, true) {
+					slog.Info("profile is private, remaining games will use schema-only")
+					wailsRuntime.EventsEmit(a.ctx, "profile-visibility", map[string]any{
+						"public": false,
+					})
+				}
+			}
+
+			if privateFlag.Load() {
+				// Private profile — use schema-only
+				total, hasSchema := services.HasAchievementsFromSchema(result.game.AppID)
+				if hasSchema && total > 0 {
+					settings.SaveAchievementCounts(result.game.AppID, -1, total)
+					wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
+						"appId":    result.game.AppID,
+						"achieved": -1,
+						"total":    total,
+					})
+				}
+			} else if isTransientError(errorMessage) {
+				// Transient error (rate limit, network, bad response) — skip cache so it retries next scan
+				slog.Debug("skipping cache for transient error", "appID", result.game.AppID, "error", errorMessage)
+			} else {
+				// Permanent error (Steam says "no stats for this game") — cache as 0/0
+				earlyAccess := webAPI.CheckEarlyAccess(result.game.AppID)
+				settings.SaveAchievementCountsEarlyAccess(result.game.AppID, 0, 0, earlyAccess)
+				wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
+					"appId":       result.game.AppID,
+					"achieved":    0,
+					"total":       0,
+					"earlyAccess": earlyAccess,
+				})
+				if earlyAccess {
+					slog.Debug("early access game with no achievements", "appID", result.game.AppID, "name", result.game.Name)
+				}
+			}
+		} else if result.total == 0 {
+			earlyAccess := webAPI.CheckEarlyAccess(result.game.AppID)
+			settings.SaveAchievementCountsEarlyAccess(result.game.AppID, 0, 0, earlyAccess)
+			wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
+				"appId":       result.game.AppID,
+				"achieved":    0,
+				"total":       0,
+				"earlyAccess": earlyAccess,
+			})
+			if earlyAccess {
+				slog.Debug("early access game with no achievements", "appID", result.game.AppID, "name", result.game.Name)
+			}
+		} else {
+			settings.SaveAchievementCounts(result.game.AppID, result.achieved, result.total)
+			wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
+				"appId":    result.game.AppID,
+				"achieved": result.achieved,
+				"total":    result.total,
+			})
+		}
+	}
+
+	slog.Info("web api scan complete", "scanned", scanned, "total", totalGames)
+	a.finalizeScan()
+}
+
+func (a *App) finalizeScan() {
+	settings.FlushAchievementCache()
+	a.saveScanTimestamp()
+	wailsRuntime.EventsEmit(a.ctx, "scan-complete", nil)
+}
+
+func (a *App) saveScanTimestamp() {
+	currentSettings := settings.Get()
+	currentSettings.LastScanTime = time.Now().Unix()
+	if err := settings.Save(currentSettings); err != nil {
+		slog.Warn("failed to save scan timestamp", "error", err)
+	}
+}
+
+func cacheAchievementCounts(appID uint32, achievements []models.Achievement) {
+	achieved := 0
+	for _, achievement := range achievements {
+		if achievement.IsAchieved {
+			achieved++
+		}
+	}
+	settings.SaveAchievementCounts(appID, achieved, len(achievements))
+}
+
+// UpdateInfo contains the result of a version check against GitHub releases.
+type UpdateInfo struct {
+	CurrentVersion  string `json:"currentVersion"`
+	LatestVersion   string `json:"latestVersion"`
+	UpdateAvailable bool   `json:"updateAvailable"`
+	DownloadURL     string `json:"downloadUrl"`
+}
+
+// GetAppVersion returns the current application version.
+func (a *App) GetAppVersion() string {
+	return Version
+}
+
+// CheckForUpdates checks GitHub for the latest release and compares with the current version.
+func (a *App) CheckForUpdates() (UpdateInfo, error) {
+	result := UpdateInfo{CurrentVersion: Version}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(a.ctx, http.MethodGet, "https://api.github.com/repos/steamforge-app/steamforge/releases/latest", nil)
+	if err != nil {
+		return result, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return result, fmt.Errorf("fetch latest release: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return result, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		HTMLURL string `json:"html_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return result, fmt.Errorf("decode response: %w", err)
+	}
+
+	result.LatestVersion = release.TagName
+	result.DownloadURL = release.HTMLURL
+	result.UpdateAvailable = Version != "dev" && normalizeVersion(release.TagName) != normalizeVersion(Version)
+
+	return result, nil
+}
+
+// normalizeVersion strips a leading "v" for comparison.
+func normalizeVersion(version string) string {
+	return strings.TrimPrefix(strings.TrimSpace(version), "v")
+}

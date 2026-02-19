@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+@theme {
+  --color-steam-bg: #1b2838;
+  --color-steam-surface: #2a475e;
+  --color-steam-surface-light: #3d6b8e;
+  --color-steam-primary: #66c0f4;
+  --color-steam-primary-dark: #4a9fd4;
+  --color-steam-success: #5ba32b;
+  --color-steam-danger: #c83c3c;
+  --color-steam-warning: #e5a60e;
+  --color-steam-text: #c7d5e0;
+  --color-steam-text-dim: #8f98a0;
+  --color-steam-border: #2a475e;
+  --color-steam-input: #1a2634;
+  --color-steam-hover: #3d6b8e33;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-steam-bg);
+  color: var(--color-steam-text);
+  font-family: "Motiva Sans", Arial, Helvetica, sans-serif;
+  overflow: hidden;
+  height: 100%;
+  user-select: none;
+}
+
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-steam-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-steam-surface-light);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-steam-primary-dark);
+}
+
+.gold-bar {
+  background: linear-gradient(90deg, #b8860b, #ffd700, #b8860b);
+  background-size: 200% 100%;
+  animation: gold-shimmer 2s ease-in-out infinite;
+}
+
+@keyframes gold-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* Toggle switch */
+.toggle-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  cursor: pointer;
+  flex-shrink: 0;
+  border: none;
+  padding: 0;
+  background: var(--color-steam-input);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+
+.toggle-switch:hover {
+  background: #243447;
+}
+
+.toggle-switch.active.green {
+  background: var(--color-steam-success);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2), 0 0 8px rgba(91, 163, 43, 0.4);
+}
+
+.toggle-switch.active.amber {
+  background: var(--color-steam-warning);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2), 0 0 8px rgba(229, 166, 14, 0.4);
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #fff 0%, #dde3e8 100%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.toggle-switch.active .toggle-knob {
+  transform: translateX(18px);
+  background: linear-gradient(180deg, #fff 0%, #f0f4f8 100%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 0 4px rgba(255, 255, 255, 0.3);
+}
+
+/* Ultra rare achievement icon — light shaft rays */
+.rarity-rays {
+  position: absolute;
+  inset: -8px;
+  z-index: 0;
+  border-radius: 4px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    color-mix(in srgb, var(--ray-color) 40%, transparent) 8deg,
+    transparent 16deg,
+    transparent 30deg,
+    color-mix(in srgb, var(--ray-color) 30%, transparent) 38deg,
+    transparent 46deg,
+    transparent 60deg,
+    color-mix(in srgb, var(--ray-color) 45%, transparent) 68deg,
+    transparent 76deg,
+    transparent 90deg,
+    color-mix(in srgb, var(--ray-color) 25%, transparent) 98deg,
+    transparent 106deg,
+    transparent 120deg,
+    color-mix(in srgb, var(--ray-color) 35%, transparent) 128deg,
+    transparent 136deg,
+    transparent 150deg,
+    color-mix(in srgb, var(--ray-color) 40%, transparent) 158deg,
+    transparent 166deg,
+    transparent 180deg,
+    color-mix(in srgb, var(--ray-color) 30%, transparent) 188deg,
+    transparent 196deg,
+    transparent 210deg,
+    color-mix(in srgb, var(--ray-color) 45%, transparent) 218deg,
+    transparent 226deg,
+    transparent 240deg,
+    color-mix(in srgb, var(--ray-color) 25%, transparent) 248deg,
+    transparent 256deg,
+    transparent 270deg,
+    color-mix(in srgb, var(--ray-color) 35%, transparent) 278deg,
+    transparent 286deg,
+    transparent 300deg,
+    color-mix(in srgb, var(--ray-color) 40%, transparent) 308deg,
+    transparent 316deg,
+    transparent 330deg,
+    color-mix(in srgb, var(--ray-color) 30%, transparent) 338deg,
+    transparent 346deg,
+    transparent 360deg
+  );
+  animation: rarity-rays-spin 12s linear infinite;
+  mask-image: radial-gradient(circle, white 30%, transparent 70%);
+  -webkit-mask-image: radial-gradient(circle, white 30%, transparent 70%);
+}
+
+@keyframes rarity-rays-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+

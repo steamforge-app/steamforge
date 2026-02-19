@@ -1,0 +1,25 @@
+# Build output
+build/bin/
+
+# Frontend
+frontend/dist/
+frontend/node_modules/
+
+# App data (generated at runtime)
+settings.json
+achievement_cache.json
+*.log
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
