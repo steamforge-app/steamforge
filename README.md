@@ -23,11 +23,6 @@ A desktop Steam achievement manager built with Go, Svelte 5, and Wails. Browse y
 </p>
 
 <p align="center">
-  <img src="screenshots/achievement-modal.png" alt="Achievement Modal" width="100%">
-  <br><em>View and manage achievements with carousel navigation</em>
-</p>
-
-<p align="center">
   <img src="screenshots/achievement-fullscreen.png" alt="Achievement Fullscreen" width="100%">
   <br><em>Fullscreen achievement view with global rarity percentages</em>
 </p>
