@@ -200,7 +200,7 @@
 
 <div class="flex flex-col flex-1 overflow-hidden">
   <div class="px-4 pt-3 pb-2 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-steam-border/50">
-    <div class="flex items-center lg:flex-1 lg:min-w-0">
+    <div class="flex items-center">
       <button
         onclick={() => BrowserOpenURL('https://ko-fi.com/ratkill')}
         title="Support SteamForge"
@@ -215,7 +215,7 @@
     <div class="w-full order-first lg:order-none lg:w-auto lg:flex-1 lg:min-w-0 lg:max-w-md">
       <GameSearch />
     </div>
-    <div class="flex-1 min-w-0 flex items-center justify-end gap-3">
+    <div class="flex items-center gap-3 ml-auto flex-shrink-0">
       <div class="relative">
         <button
           onclick={() => filterDropdownOpen = !filterDropdownOpen}
