@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build
+        run: make build-linux VERSION=${{ github.ref_name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steamforge-linux
+          path: build/bin/steamforge
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build
+        run: wails build -ldflags="-s -w -X main.Version=${{ github.ref_name }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: steamforge-windows
+          path: build/bin/steamforge.exe
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: steamforge-linux
+          path: artifacts/linux
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: steamforge-windows
+          path: artifacts/windows
+
+      - name: Rename artifacts
+        run: |
+          mv artifacts/linux/steamforge artifacts/steamforge-linux-amd64
+          mv artifacts/windows/steamforge.exe artifacts/steamforge-windows-amd64.exe
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/steamforge-linux-amd64
+            artifacts/steamforge-windows-amd64.exe
