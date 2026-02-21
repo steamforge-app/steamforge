@@ -1,86 +1,59 @@
 <script lang="ts">
-  import { tick } from 'svelte';
   import { filteredGames } from '../stores/games';
-  import { scanning } from '../stores/app';
   import { settings, updateSetting, setSortColumn } from '../stores/settings';
   import type { Settings } from '../stores/settings';
   import GameCard from './GameCard.svelte';
   import GameListRow from './GameListRow.svelte';
+  import VirtualGrid from './VirtualGrid.svelte';
 
-  // Subtle reorder animation: gentle crossfade for cards that changed position.
-  // Disabled during scanning to avoid visual noise from frequent reorders.
-  function fadeReorder(_node: Element, { from, to }: { from: DOMRect; to: DOMRect }, { duration = 200 }: { duration?: number } = {}) {
-    const dx = from.left - to.left;
-    const dy = from.top - to.top;
-    if (Math.abs(dx) < 1 && Math.abs(dy) < 1 || duration === 0) return { duration: 0 };
-    return {
-      duration,
-      css: (t: number) => {
-        // Gentle dip to 40% opacity at midpoint, not a full blackout
-        const opacity = 0.4 + 0.6 * Math.abs(2 * t - 1);
-        return `opacity: ${opacity}`;
-      },
-    };
-  }
-
-  let animationDuration = $derived($scanning ? 0 : 200);
+  const GAP = 16;
+  const GRID_PADDING = 32;
+  const PROGRESS_BAR_HEIGHT = 16;
+  const CARD_BORDER = 2;
+  const LABELS_HEIGHT = 58;
+  const LIST_ROW_HEIGHT = 47;
+  const IMAGE_ASPECT = 215 / 460;
 
   function sortIndicator(column: Settings['sortBy']): string {
     if ($settings.sortBy !== column) return '';
     return $settings.sortOrder === 'asc' ? ' ↑' : ' ↓';
   }
 
-  const BATCH_SIZE = 60;
-
-  let otherVisibleCount = $state(BATCH_SIZE);
   let scrollContainer: HTMLDivElement | undefined = $state();
+  let gridContainerWidth = $state(0);
 
   let installedGames = $derived($filteredGames.filter(game => game.installed));
   let otherGames = $derived($filteredGames.filter(game => !game.installed));
 
-  $effect(() => {
-    $filteredGames;
-    otherVisibleCount = BATCH_SIZE;
-  });
-
-  let visibleOtherGames = $derived(otherGames.slice(0, otherVisibleCount));
-  let hasMoreOther = $derived(otherVisibleCount < otherGames.length);
-
-  // Load more batches until the content overflows the container (creates a scrollbar).
-  // Fixes 4K/large monitors where the initial batch doesn't fill the viewport.
-  // Also re-checks when container is resized (e.g. moving window to a larger monitor).
-  let containerHeight = $state(0);
-
-  $effect(() => {
-    otherVisibleCount;
-    containerHeight; // re-run when container resizes
-    if (!hasMoreOther || !scrollContainer) return;
-    tick().then(() => {
-      if (scrollContainer && scrollContainer.scrollHeight <= scrollContainer.clientHeight) {
-        otherVisibleCount = Math.min(otherVisibleCount + BATCH_SIZE, otherGames.length);
-      }
-    });
-  });
-
-  // Watch for container resize (window move to larger monitor, window resize, etc.)
+  // Track scroll container width for column calculations
   $effect(() => {
     if (!scrollContainer) return;
     const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        containerHeight = entry.contentRect.height;
-      }
+      gridContainerWidth = entries[0].contentRect.width;
     });
     observer.observe(scrollContainer);
     return () => observer.disconnect();
   });
 
-  function handleScroll() {
-    if (!scrollContainer || !hasMoreOther) return;
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-    if (scrollHeight - scrollTop - clientHeight < 400) {
-      otherVisibleCount = Math.min(otherVisibleCount + BATCH_SIZE, otherGames.length);
-    }
-  }
+  let columnCount = $derived.by(() => {
+    if ($settings.viewMode === 'list') return 1;
+    const effectiveWidth = gridContainerWidth - GRID_PADDING;
+    if (effectiveWidth <= 0) return 1;
+    return Math.max(1, Math.floor((effectiveWidth + GAP) / ($settings.cardMinWidth + GAP)));
+  });
+
+  let actualColumnWidth = $derived.by(() => {
+    const effectiveWidth = gridContainerWidth - GRID_PADDING;
+    if (effectiveWidth <= 0 || columnCount <= 0) return $settings.cardMinWidth;
+    return (effectiveWidth - (columnCount - 1) * GAP) / columnCount;
+  });
+
+  let gridRowHeight = $derived.by(() => {
+    const imageHeight = (actualColumnWidth - CARD_BORDER) * IMAGE_ASPECT;
+    const labelsHeight = $settings.showLabels ? LABELS_HEIGHT : 0;
+    const cardHeight = imageHeight + PROGRESS_BAR_HEIGHT + labelsHeight + CARD_BORDER;
+    return cardHeight + GAP;
+  });
 
   function toggleInstalled() {
     updateSetting('installedOpen', !$settings.installedOpen);
@@ -117,7 +90,6 @@
 {:else}
   <div
     bind:this={scrollContainer}
-    onscroll={handleScroll}
     class="flex-1 overflow-y-auto min-h-0"
   >
     {#if installedGames.length > 0}
@@ -142,19 +114,33 @@
           {#if $settings.viewMode === 'list'}
             <div>
               {@render listHeader()}
-              {#each installedGames as game (game.appId)}
-                <div animate:fadeReorder={{ duration: animationDuration }}>
+              <VirtualGrid
+                {scrollContainer}
+                items={installedGames}
+                columnCount={1}
+                rowHeight={LIST_ROW_HEIGHT}
+                keyFn={(game) => game.appId}
+              >
+                {#snippet children(game)}
                   <GameListRow {game} />
-                </div>
-              {/each}
+                {/snippet}
+              </VirtualGrid>
             </div>
           {:else}
-            <div class="grid gap-4 p-4" style="grid-template-columns: repeat(auto-fill, minmax({$settings.cardMinWidth}px, 1fr))">
-              {#each installedGames as game (game.appId)}
-                <div animate:fadeReorder={{ duration: animationDuration }}>
+            <div class="p-4">
+              <VirtualGrid
+                {scrollContainer}
+                items={installedGames}
+                {columnCount}
+                rowHeight={gridRowHeight}
+                class="grid"
+                style="grid-template-columns: repeat({columnCount}, 1fr); gap: {GAP}px"
+                keyFn={(game) => game.appId}
+              >
+                {#snippet children(game)}
                   <GameCard {game} />
-                </div>
-              {/each}
+                {/snippet}
+              </VirtualGrid>
             </div>
           {/if}
         {/if}
@@ -183,24 +169,33 @@
           {#if $settings.viewMode === 'list'}
             <div>
               {@render listHeader()}
-              {#each visibleOtherGames as game (game.appId)}
-                <div animate:fadeReorder={{ duration: animationDuration }}>
+              <VirtualGrid
+                {scrollContainer}
+                items={otherGames}
+                columnCount={1}
+                rowHeight={LIST_ROW_HEIGHT}
+                keyFn={(game) => game.appId}
+              >
+                {#snippet children(game)}
                   <GameListRow {game} />
-                </div>
-              {/each}
+                {/snippet}
+              </VirtualGrid>
             </div>
           {:else}
-            <div class="grid gap-4 p-4" style="grid-template-columns: repeat(auto-fill, minmax({$settings.cardMinWidth}px, 1fr))">
-              {#each visibleOtherGames as game (game.appId)}
-                <div animate:fadeReorder={{ duration: animationDuration }}>
+            <div class="p-4">
+              <VirtualGrid
+                {scrollContainer}
+                items={otherGames}
+                {columnCount}
+                rowHeight={gridRowHeight}
+                class="grid"
+                style="grid-template-columns: repeat({columnCount}, 1fr); gap: {GAP}px"
+                keyFn={(game) => game.appId}
+              >
+                {#snippet children(game)}
                   <GameCard {game} />
-                </div>
-              {/each}
-            </div>
-          {/if}
-          {#if hasMoreOther}
-            <div class="text-center py-4 text-steam-text-dim text-sm">
-              Showing {otherVisibleCount} of {otherGames.length} games — scroll for more
+                {/snippet}
+              </VirtualGrid>
             </div>
           {/if}
         {/if}

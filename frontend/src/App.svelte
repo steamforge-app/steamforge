@@ -8,7 +8,11 @@
   import Toast from './lib/components/Toast.svelte';
   import GamePicker from './lib/pages/GamePicker.svelte';
   import GameManager from './lib/pages/GameManager.svelte';
+  import { CheckForUpdates, GetAppVersion } from '../wailsjs/go/main/App';
   import { EventsOn, BrowserOpenURL } from '../wailsjs/runtime/runtime';
+
+  let appVersion = $state('');
+  let updateInfo = $state<{ updateAvailable: boolean; latestVersion: string; currentVersion: string; downloadUrl: string } | null>(null);
 
   let innerWidth = $state(window.innerWidth);
   let isModal = $derived(innerWidth >= 1100);
@@ -33,6 +37,8 @@
 
   // Scan event listeners live at the app level so they persist across page navigation.
   onMount(() => {
+    GetAppVersion().then(v => appVersion = v).catch(() => {});
+    CheckForUpdates().then(info => updateInfo = info).catch(() => {});
     EventsOn('scan-progress', (data: any) => {
       scanProgress.set({ current: data.current, total: data.total, name: data.name });
     });
@@ -158,7 +164,20 @@
           <span class="text-steam-text-dim">Disconnected</span>
         </span>
       {/if}
-      <button onclick={() => BrowserOpenURL('https://ratkill.gg')} class="text-steam-text-dim hover:text-steam-primary transition-colors cursor-pointer">ratkill.gg</button>
+      {#if updateInfo?.updateAvailable}
+        <button
+          onclick={() => BrowserOpenURL(updateInfo!.downloadUrl)}
+          class="flex items-center gap-1 text-steam-primary hover:text-steam-primary-light transition-colors cursor-pointer"
+          title="Download {updateInfo.latestVersion}"
+        >
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          {updateInfo.latestVersion} available
+        </button>
+      {:else if appVersion || updateInfo}
+        <span class="text-steam-text-dim">{appVersion || updateInfo?.currentVersion}</span>
+      {/if}
     </div>
   </footer>
   <Toast />
