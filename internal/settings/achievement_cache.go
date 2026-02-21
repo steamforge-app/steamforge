@@ -70,36 +70,6 @@ func LoadAchievementCache() map[uint32]AchievementCount {
 	return result
 }
 
-// PurgeSuspectCacheEntries removes all 0/0 entries from the cache.
-// These may have been incorrectly cached due to rate limiting.
-// Legitimate 0-achievement games will be re-detected on the next scan.
-func PurgeSuspectCacheEntries() int {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-
-	if achCache == nil {
-		return 0
-	}
-
-	purged := 0
-	for appID, entry := range achCache {
-		if entry.Achieved == 0 && entry.Total == 0 {
-			delete(achCache, appID)
-			purged++
-		}
-	}
-
-	if purged > 0 {
-		slog.Info("purged suspect cache entries", "count", purged)
-		// Schedule a flush to persist the purge
-		if cacheFlushTimer != nil {
-			cacheFlushTimer.Stop()
-		}
-		cacheFlushTimer = time.AfterFunc(cacheFlushDelay, flushAchievementCache)
-	}
-
-	return purged
-}
 
 func ClearAchievementCache() {
 	cacheMu.Lock()

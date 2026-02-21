@@ -493,9 +493,6 @@ func (a *App) ScanAchievementCounts() {
 	}
 
 	allGames := gameService.SearchGames("")
-	// Purge entries that may have been incorrectly cached as 0/0 due to rate limiting.
-	// Legitimate 0-achievement games will be re-confirmed on this scan.
-	settings.PurgeSuspectCacheEntries()
 	cached := settings.LoadAchievementCache()
 	lastScanTime := settings.Get().LastScanTime
 	var toScan []models.GameInfo
@@ -503,12 +500,23 @@ func (a *App) ScanAchievementCounts() {
 		if game.IsSoftware {
 			continue
 		}
-		if _, ok := cached[game.AppID]; !ok {
+		entry, ok := cached[game.AppID]
+		if !ok {
 			// Never scanned
 			toScan = append(toScan, game)
 		} else if lastScanTime > 0 && game.LastPlayed > 0 && int64(game.LastPlayed) > lastScanTime {
 			// Played since last scan — rescan for updated achievement data
 			toScan = append(toScan, game)
+		} else if entry.Total > 0 && entry.Achieved == entry.Total {
+			// Perfected — check if schema total changed (new DLC achievements)
+			if schemaTotal, hasSchema := services.HasAchievementsFromSchema(game.AppID); hasSchema && schemaTotal != entry.Total {
+				toScan = append(toScan, game)
+			}
+		} else if entry.Total == 0 && !entry.EarlyAccess {
+			// Released game with no achievements — check if achievements were added
+			if schemaTotal, hasSchema := services.HasAchievementsFromSchema(game.AppID); hasSchema && schemaTotal > 0 {
+				toScan = append(toScan, game)
+			}
 		}
 	}
 
