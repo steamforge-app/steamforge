@@ -306,8 +306,16 @@
       }
 
       const result = await LoadAchievements($selectedAppId);
-      achievements.set(result || []);
-      snapshotState();
+      const loaded = result || [];
+
+      // Capture the Steam-side state directly from the loaded data (not via
+      // $achievements) so the diff in handleStore has the true baseline.
+      const steamSnapshot = new Map<string, boolean>();
+      for (const achievement of loaded) {
+        steamSnapshot.set(achievement.id, achievement.isAchieved);
+      }
+
+      achievements.set(loaded);
       gameConnected = true;
 
       // Re-apply pending changes so handleStore can detect them
@@ -320,6 +328,10 @@
           return item;
         }));
       }
+
+      // Set originalState to the Steam-saved state (not the pending state),
+      // so handleStore's diff correctly detects all changes to apply.
+      originalState = steamSnapshot;
 
       return true;
     } catch (e: any) {
@@ -495,14 +507,26 @@
     loadingMessage.set('Storing changes...');
     try {
       // Apply all pending changes to the Steam SDK
+      let applied = 0;
+      let failed = 0;
       for (const achievement of $achievements) {
         const original = originalState.get(achievement.id);
         if (original === undefined || original === achievement.isAchieved) continue;
         if (achievement.isAchieved) {
-          await SetAchievement(achievement.id);
+          const ok = await SetAchievement(achievement.id);
+          if (ok) applied++; else failed++;
         } else {
-          await ClearAchievement(achievement.id);
+          const ok = await ClearAchievement(achievement.id);
+          if (ok) applied++; else failed++;
         }
+      }
+      if (applied === 0 && failed === 0) {
+        addToast('No changes detected to save', 'error');
+        return;
+      }
+      if (failed > 0) {
+        addToast(`${failed} achievement(s) failed to update in Steam SDK`, 'error');
+        return;
       }
       const ok = await StoreStats();
       if (ok) {
