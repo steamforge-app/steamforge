@@ -104,10 +104,7 @@ func (s *AchievementService) LoadAchievements(appID uint32) ([]models.Achievemen
 			}
 		})
 
-		var callHandle uint64
-		s.client.RunOnSteamThread(func() {
-			callHandle = userStats.RequestUserStats(s.client.SteamID())
-		})
+		callHandle := userStats.RequestUserStats(s.client.SteamID())
 		slog.Debug("RequestUserStats called", "appID", appID, "steamID", s.client.SteamID(), "callHandle", callHandle)
 
 		s.mu.RLock()
@@ -134,16 +131,14 @@ func (s *AchievementService) LoadAchievements(appID uint32) ([]models.Achievemen
 	enumStart := time.Now()
 	var achievements []models.Achievement
 
-	s.client.RunOnSteamThread(func() {
-		if gameSchema != nil && len(gameSchema.Achievements) > 0 {
-			slog.Debug("using schema for achievement enumeration", "appID", appID, "schemaCount", len(gameSchema.Achievements))
-			achievements = s.loadFromSchema(appID, userStats, gameSchema)
-		} else {
-			numAchievements := userStats.GetNumAchievements()
-			slog.Debug("using API for achievement enumeration", "appID", appID, "apiCount", numAchievements)
-			achievements = s.loadFromAPI(appID, userStats, numAchievements, gameSchema)
-		}
-	})
+	if gameSchema != nil && len(gameSchema.Achievements) > 0 {
+		slog.Debug("using schema for achievement enumeration", "appID", appID, "schemaCount", len(gameSchema.Achievements))
+		achievements = s.loadFromSchema(appID, userStats, gameSchema)
+	} else {
+		numAchievements := userStats.GetNumAchievements()
+		slog.Debug("using API for achievement enumeration", "appID", appID, "apiCount", numAchievements)
+		achievements = s.loadFromAPI(appID, userStats, numAchievements, gameSchema)
+	}
 	slog.Info("achievement enumeration done", "appID", appID, "count", len(achievements), "enumElapsed", time.Since(enumStart))
 
 	s.mu.Lock()
@@ -339,10 +334,7 @@ func (s *AchievementService) SetAchievement(name string) (bool, error) {
 	if userStats == nil {
 		return false, fmt.Errorf("UserStats not available")
 	}
-	var ok bool
-	s.client.RunOnSteamThread(func() {
-		ok = userStats.SetAchievement(name)
-	})
+	ok := userStats.SetAchievement(name)
 	slog.Info("set achievement", "name", name, "ok", ok)
 
 	if ok {
@@ -367,10 +359,7 @@ func (s *AchievementService) ClearAchievement(name string) (bool, error) {
 	if userStats == nil {
 		return false, fmt.Errorf("UserStats not available")
 	}
-	var ok bool
-	s.client.RunOnSteamThread(func() {
-		ok = userStats.ClearAchievement(name)
-	})
+	ok := userStats.ClearAchievement(name)
 	slog.Info("clear achievement", "name", name, "ok", ok)
 
 	if ok {
@@ -395,18 +384,16 @@ func (s *AchievementService) SetAllAchievements() (int, error) {
 	}
 
 	count := 0
-	s.client.RunOnSteamThread(func() {
-		s.mu.Lock()
-		for i := range s.achievements {
-			if !s.achievements[i].IsAchieved {
-				if userStats.SetAchievement(s.achievements[i].ID) {
-					s.achievements[i].IsAchieved = true
-					count++
-				}
+	s.mu.Lock()
+	for i := range s.achievements {
+		if !s.achievements[i].IsAchieved {
+			if userStats.SetAchievement(s.achievements[i].ID) {
+				s.achievements[i].IsAchieved = true
+				count++
 			}
 		}
-		s.mu.Unlock()
-	})
+	}
+	s.mu.Unlock()
 
 	slog.Info("set all achievements", "count", count)
 	return count, nil
@@ -419,19 +406,17 @@ func (s *AchievementService) ClearAllAchievements() (int, error) {
 	}
 
 	count := 0
-	s.client.RunOnSteamThread(func() {
-		s.mu.Lock()
-		for i := range s.achievements {
-			if s.achievements[i].IsAchieved {
-				if userStats.ClearAchievement(s.achievements[i].ID) {
-					s.achievements[i].IsAchieved = false
-					s.achievements[i].UnlockTime = 0
-					count++
-				}
+	s.mu.Lock()
+	for i := range s.achievements {
+		if s.achievements[i].IsAchieved {
+			if userStats.ClearAchievement(s.achievements[i].ID) {
+				s.achievements[i].IsAchieved = false
+				s.achievements[i].UnlockTime = 0
+				count++
 			}
 		}
-		s.mu.Unlock()
-	})
+	}
+	s.mu.Unlock()
 
 	slog.Info("clear all achievements", "count", count)
 	return count, nil
@@ -442,10 +427,7 @@ func (s *AchievementService) StoreStats() (bool, error) {
 	if userStats == nil {
 		return false, fmt.Errorf("UserStats not available")
 	}
-	var ok bool
-	s.client.RunOnSteamThread(func() {
-		ok = userStats.StoreStats()
-	})
+	ok := userStats.StoreStats()
 	slog.Info("store stats", "ok", ok)
 	return ok, nil
 }

@@ -24,9 +24,6 @@ type Client struct {
 	stopCh  chan struct{}
 	wg      sync.WaitGroup
 
-	// workCh serialises ISteamUserStats vtable calls onto the locked OS thread.
-	workCh chan func()
-
 	// Interfaces
 	steamUser      *ISteamUser
 	steamUserStats *ISteamUserStats
@@ -116,7 +113,6 @@ func NewClient(appID uint32) (*Client, error) {
 		steamID:      steamID,
 		callbacks:    dispatcher,
 		stopCh:       make(chan struct{}),
-		workCh:       make(chan func(), 64),
 		steamUser:    steamUser,
 		CurrentAppID: appID,
 	}
@@ -163,7 +159,6 @@ func (c *Client) StartCallbackLoop() {
 	c.running = true
 	dispatcher := c.callbacks // capture under lock
 	stopCh := c.stopCh       // capture under lock
-	workCh := c.workCh       // capture under lock
 	c.mu.Unlock()
 
 	slog.Debug("callback loop started")
@@ -179,31 +174,11 @@ func (c *Client) StartCallbackLoop() {
 			case <-stopCh:
 				slog.Debug("callback loop stopped")
 				return
-			case work := <-workCh:
-				work()
 			case <-ticker.C:
 				dispatcher.Poll()
 			}
 		}
 	}()
-}
-
-// RunOnSteamThread sends fn to the locked OS thread that runs the callback
-// loop and blocks until fn returns. This ensures all ISteamUserStats vtable
-// calls happen on the same OS thread, preventing SIGSEGV inside steamclient.so.
-//
-// If the callback loop is not running (e.g. during tests or after Close),
-// fn is executed inline on the calling goroutine as a best-effort fallback.
-func (c *Client) RunOnSteamThread(fn func()) {
-	done := make(chan struct{})
-	work := func() { fn(); close(done) }
-	select {
-	case c.workCh <- work:
-		<-done
-	case <-c.stopCh:
-		// Loop is stopped; run inline as fallback (best effort).
-		fn()
-	}
 }
 
 func (c *Client) UserStats() *ISteamUserStats {
