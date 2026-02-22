@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -23,6 +24,8 @@ type Client struct {
 	running bool
 	stopCh  chan struct{}
 	wg      sync.WaitGroup
+
+	closed atomic.Bool
 
 	// Interfaces
 	steamUser      *ISteamUser
@@ -212,12 +215,22 @@ func (c *Client) Callbacks() *CallbackDispatcher {
 }
 
 func (c *Client) Close() {
+	if !c.closed.CompareAndSwap(false, true) {
+		return
+	}
+
 	c.mu.Lock()
 	if c.running {
 		close(c.stopCh)
 		c.running = false
 	}
+	callbacks := c.callbacks
+	c.callbacks = nil
 	c.mu.Unlock()
+
+	if callbacks != nil {
+		callbacks.Close()
+	}
 
 	c.wg.Wait()
 

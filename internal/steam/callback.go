@@ -2,6 +2,7 @@ package steam
 
 import (
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -15,6 +16,8 @@ type CallbackDispatcher struct {
 
 	mu       sync.RWMutex
 	handlers map[int32][]CallbackHandler
+
+	closed atomic.Bool
 }
 
 func NewCallbackDispatcher(lib Library, pipe int32) (*CallbackDispatcher, error) {
@@ -36,6 +39,10 @@ func NewCallbackDispatcher(lib Library, pipe int32) (*CallbackDispatcher, error)
 	}, nil
 }
 
+func (d *CallbackDispatcher) Close() {
+	d.closed.Store(true)
+}
+
 func (d *CallbackDispatcher) Register(callbackID int32, handler CallbackHandler) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -49,6 +56,8 @@ func (d *CallbackDispatcher) RegisterOne(callbackID int32, handler CallbackHandl
 }
 
 func (d *CallbackDispatcher) Poll() {
+	if d.closed.Load() { return }
+
 	var msg CallbackMessage
 	var call int32
 
@@ -60,6 +69,11 @@ func (d *CallbackDispatcher) Poll() {
 		)
 
 		if ret == 0 {
+			break
+		}
+
+		// Stop processing new callbacks if dispatcher was closed mid-poll
+		if d.closed.Load() {
 			break
 		}
 

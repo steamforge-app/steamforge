@@ -502,27 +502,34 @@
   }
 
   async function handleStore() {
+    // Capture changes BEFORE ensureConnected(), which may replace
+    // both $achievements and originalState during reconnection.
+    const changesToApply: Array<{id: string; achieved: boolean}> = [];
+    for (const achievement of $achievements) {
+      const original = originalState.get(achievement.id);
+      if (original !== undefined && original !== achievement.isAchieved) {
+        changesToApply.push({ id: achievement.id, achieved: achievement.isAchieved });
+      }
+    }
+    if (changesToApply.length === 0) {
+      addToast('No changes detected to save', 'error');
+      return;
+    }
+
     if (!await ensureConnected()) return;
     isLoading.set(true);
     loadingMessage.set('Storing changes...');
     try {
-      // Apply all pending changes to the Steam SDK
       let applied = 0;
       let failed = 0;
-      for (const achievement of $achievements) {
-        const original = originalState.get(achievement.id);
-        if (original === undefined || original === achievement.isAchieved) continue;
-        if (achievement.isAchieved) {
-          const ok = await SetAchievement(achievement.id);
+      for (const change of changesToApply) {
+        if (change.achieved) {
+          const ok = await SetAchievement(change.id);
           if (ok) applied++; else failed++;
         } else {
-          const ok = await ClearAchievement(achievement.id);
+          const ok = await ClearAchievement(change.id);
           if (ok) applied++; else failed++;
         }
-      }
-      if (applied === 0 && failed === 0) {
-        addToast('No changes detected to save', 'error');
-        return;
       }
       if (failed > 0) {
         addToast(`${failed} achievement(s) failed to update in Steam SDK`, 'error');
