@@ -152,6 +152,19 @@
         <span class="toggle-knob"></span>
       </button>
     </div>
+    <div class="flex items-center justify-between">
+      <div class="flex flex-col">
+        <span class="text-xs text-steam-text">Protect Last Played</span>
+        <span class="text-[10px] text-steam-text-dim leading-tight">Defer connection until saving</span>
+      </div>
+      <button
+        onclick={() => updateSetting('protectLastPlayed', !$settings.protectLastPlayed)}
+        title={$settings.protectLastPlayed ? 'Disable last played protection' : 'Enable last played protection'}
+        class="toggle-switch {$settings.protectLastPlayed ? 'active green' : ''}"
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
   </div>
 
   <div class="mt-3 pt-3 border-t border-steam-border">

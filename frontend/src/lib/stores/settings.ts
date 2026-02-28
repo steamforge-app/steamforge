@@ -14,6 +14,7 @@ export interface Settings {
   achievementSortDir: 'asc' | 'desc';
   showSoftware: boolean;
   showCardButtons: boolean;
+  protectLastPlayed: boolean;
   cardMinWidth: number;
   windowWidth: number;
   windowHeight: number;
@@ -33,6 +34,7 @@ const defaults: Settings = {
   achievementSortDir: 'asc',
   showSoftware: false,
   showCardButtons: true,
+  protectLastPlayed: false,
   cardMinWidth: 200,
   windowWidth: 1280,
   windowHeight: 800,

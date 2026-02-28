@@ -265,22 +265,27 @@
           // Community unavailable — fall through to Steam client
         }
       }
-      // Community unavailable — must connect to Steam client
-      try {
-        const result = await LoadAchievements($selectedAppId);
-        const loaded = result || [];
-        const withPercents = applyCachedPercents($selectedAppId, loaded);
-        cachePercents($selectedAppId, withPercents);
-        achievements.set(withPercents);
-        snapshotState();
-        syncAchievementCounts();
-        gameConnected = true;
-      } catch (e: any) {
-        // Game may not support achievements — disconnect to avoid staying "in-game"
-        try { await DisconnectGame(); } catch {}
+      // Community unavailable — connect to Steam client unless protected
+      if ($settings.protectLastPlayed) {
         achievements.set([]);
         snapshotState();
-        addToast(`Failed to load achievements: ${e.message || e}`, 'error');
+      } else {
+        try {
+          const result = await LoadAchievements($selectedAppId);
+          const loaded = result || [];
+          const withPercents = applyCachedPercents($selectedAppId, loaded);
+          cachePercents($selectedAppId, withPercents);
+          achievements.set(withPercents);
+          snapshotState();
+          syncAchievementCounts();
+          gameConnected = true;
+        } catch (e: any) {
+          // Game may not support achievements — disconnect to avoid staying "in-game"
+          try { await DisconnectGame(); } catch {}
+          achievements.set([]);
+          snapshotState();
+          addToast(`Failed to load achievements: ${e.message || e}`, 'error');
+        }
       }
     } catch (e: any) {
       achievements.set([]);
