@@ -1,4 +1,4 @@
-.PHONY: build build-windows build-linux dev clean frontend tag release
+.PHONY: build build-windows build-linux dev clean frontend lint check tag release
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -21,6 +21,15 @@ dev:
 # Build frontend only
 frontend:
 	cd frontend && npm run build
+
+# Lint Go backend (install golangci-lint if missing)
+lint:
+	@which golangci-lint > /dev/null 2>&1 || go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	golangci-lint run ./...
+
+# Run all checks (backend lint + frontend type check)
+check: lint
+	cd frontend && npm run check
 
 # Remove build output
 clean:

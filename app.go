@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -41,6 +42,8 @@ type App struct {
 
 	scanCancel context.CancelFunc
 	scanDone   chan struct{}
+
+	installWatcher *steam.InstallWatcher
 }
 
 func NewApp() *App {
@@ -67,6 +70,7 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.stopScan()
+	a.stopInstallWatcher()
 
 	a.mu.RLock()
 	client := a.steamClient
@@ -131,6 +135,9 @@ func (a *App) ConnectSteam() (uint64, error) {
 
 	slog.Info("Steam connected", "steamID", client.SteamID())
 	settings.SetCurrentUser(client.SteamID())
+
+	a.startInstallWatcher()
+
 	return client.SteamID(), nil
 }
 
@@ -477,7 +484,7 @@ func (a *App) GetImageBase64(url string) (string, error) {
 	a.mu.RUnlock()
 
 	if imageService == nil {
-		return "", fmt.Errorf("image service not available")
+		return "", errors.New("image service not available")
 	}
 	return imageService.GetImageBase64(url)
 }
@@ -574,6 +581,60 @@ func (a *App) stopScan() bool {
 		return true
 	}
 	return false
+}
+
+func (a *App) startInstallWatcher() {
+	// Seed the game service with the current installed state before the
+	// watcher starts, so the first FetchGames() doesn't need to rescan.
+	if initial, err := steam.ScanInstalledGames(); err == nil {
+		initialMap := make(map[uint32]bool, len(initial))
+		for _, g := range initial {
+			initialMap[g.AppID] = true
+		}
+		a.mu.RLock()
+		gs := a.gameService
+		a.mu.RUnlock()
+		if gs != nil {
+			gs.SetInstalledApps(initialMap)
+		}
+	}
+
+	watcher, err := steam.NewInstallWatcher(func(installed map[uint32]bool) {
+		// Update the game service cache so subsequent FetchGames() calls
+		// don't need to rescan the filesystem.
+		a.mu.RLock()
+		gs := a.gameService
+		a.mu.RUnlock()
+		if gs != nil {
+			gs.SetInstalledApps(installed)
+		}
+
+		// Convert uint32 keys to strings for JSON serialization.
+		payload := make(map[string]bool, len(installed))
+		for appID, v := range installed {
+			payload[strconv.FormatUint(uint64(appID), 10)] = v
+		}
+		wailsRuntime.EventsEmit(a.ctx, "games-install-changed", payload)
+	})
+	if err != nil {
+		slog.Warn("failed to start install watcher", "error", err)
+		return
+	}
+
+	a.mu.Lock()
+	a.installWatcher = watcher
+	a.mu.Unlock()
+}
+
+func (a *App) stopInstallWatcher() {
+	a.mu.Lock()
+	watcher := a.installWatcher
+	a.installWatcher = nil
+	a.mu.Unlock()
+
+	if watcher != nil {
+		watcher.Close()
+	}
 }
 
 func (a *App) restoreBaseConnection() {
@@ -700,7 +761,7 @@ func isTransientError(errMsg string) bool {
 func fetchWithRetry(ctx context.Context, webAPI *services.SteamWebAPI, appID uint32, rateLimiter *time.Ticker) (int, int, error) {
 	var achieved, total int
 	var err error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := range 3 {
 		select {
 		case <-ctx.Done():
 			return 0, 0, ctx.Err()
@@ -737,13 +798,13 @@ func (a *App) runWebAPIScan(ctx context.Context, webAPI *services.SteamWebAPI, g
 
 	// Launch workers
 	var wg sync.WaitGroup
-	for worker := 0; worker < scanWorkers; worker++ {
+	for range scanWorkers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for game := range jobs {
 				if privateFlag.Load() {
-					results <- scanResult{game: game, err: fmt.Errorf("skipped: private")}
+					results <- scanResult{game: game, err: errors.New("skipped: private")}
 					continue
 				}
 				achieved, total, err := fetchWithRetry(ctx, webAPI, game.AppID, rateLimiter)

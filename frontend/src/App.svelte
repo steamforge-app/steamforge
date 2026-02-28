@@ -54,6 +54,12 @@
     EventsOn('profile-visibility', (data: any) => {
       profilePublic.set(data.public ? 'public' : 'private');
     });
+    EventsOn('games-install-changed', (data: Record<string, boolean>) => {
+      games.update(list => list.map(game => ({
+        ...game,
+        installed: data[String(game.appId)] ?? false
+      })));
+    });
   });
 
   let totalGameCount = $derived(

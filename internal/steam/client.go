@@ -1,10 +1,12 @@
 package steam
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,7 +42,7 @@ type Client struct {
 
 func NewClient(appID uint32) (*Client, error) {
 	if appID > 0 {
-		os.Setenv("SteamAppId", fmt.Sprintf("%d", appID))
+		os.Setenv("SteamAppId", strconv.FormatUint(uint64(appID), 10))
 		slog.Info("creating Steam client for app", "appID", appID)
 	} else {
 		os.Unsetenv("SteamAppId")
@@ -69,7 +71,7 @@ func NewClient(appID uint32) (*Client, error) {
 	clientPtr := CallProc(createInterfaceFn, versionStr.Ptr(), 0)
 	if clientPtr == 0 {
 		lib.Close()
-		return nil, fmt.Errorf("CreateInterface(SteamClient018) returned null")
+		return nil, errors.New("CreateInterface(SteamClient018) returned null")
 	}
 
 	steamClient := NewISteamClient(clientPtr)
@@ -77,14 +79,14 @@ func NewClient(appID uint32) (*Client, error) {
 	pipe := steamClient.CreateSteamPipe()
 	if pipe == 0 {
 		lib.Close()
-		return nil, fmt.Errorf("CreateSteamPipe failed")
+		return nil, errors.New("CreateSteamPipe failed")
 	}
 
 	user := steamClient.ConnectToGlobalUser(pipe)
 	if user == 0 {
 		steamClient.ReleaseSteamPipe(pipe)
 		lib.Close()
-		return nil, fmt.Errorf("Steam is not running")
+		return nil, errors.New("Steam is not running")
 	}
 
 	dispatcher, err := NewCallbackDispatcher(lib, pipe)
@@ -100,7 +102,7 @@ func NewClient(appID uint32) (*Client, error) {
 		steamClient.ReleaseUser(pipe, user)
 		steamClient.ReleaseSteamPipe(pipe)
 		lib.Close()
-		return nil, fmt.Errorf("GetISteamUser failed")
+		return nil, errors.New("GetISteamUser failed")
 	}
 
 	steamUser := NewISteamUser(steamUserPtr)

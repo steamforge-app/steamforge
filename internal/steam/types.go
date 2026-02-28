@@ -1,10 +1,14 @@
 package steam
 
+import "unsafe"
+
 // CallbackMessage represents a Steam callback message.
+// ParamPtr is unsafe.Pointer to match the C struct layout and avoid
+// uintptr→Pointer conversion warnings from go vet.
 type CallbackMessage struct {
 	UserID    int32
 	Callback  int32
-	ParamPtr  uintptr
+	ParamPtr  unsafe.Pointer
 	ParamSize int32
 }
 

@@ -3,6 +3,7 @@
 package steam
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,7 +58,7 @@ func SteamClientLibraryPath() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("steamclient.so not found in any standard location")
+	return "", errors.New("steamclient.so not found in any standard location")
 }
 
 // CallProc calls a function pointer with the given arguments.

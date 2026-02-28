@@ -1,0 +1,75 @@
+run:
+  build-tags:
+    - webkit2_41
+
+linters:
+  enable:
+    # Correctness
+    - errcheck        # Unchecked errors
+    - gosimple        # Simplification suggestions
+    - govet           # Go vet checks
+    - ineffassign     # Ineffective assignments
+    - staticcheck     # Comprehensive static analysis
+    - unused          # Unused code
+
+    # Complexity & maintainability
+    - gocyclo         # Cyclomatic complexity
+    - gocognit        # Cognitive complexity
+    - funlen          # Function length
+    - cyclop          # Cyclomatic complexity (package-level)
+    - maintidx        # Maintainability index
+    - nestif          # Deeply nested ifs
+
+    # DRY & consistency
+    - dupl            # Code duplication
+    - goconst         # Repeated string/number constants
+
+    # Code quality
+    - gocritic        # Structural analysis
+    - revive          # General linting
+    - misspell        # Spelling in comments/strings
+    - copyloopvar     # Loop variable capture bugs
+    - intrange        # Integer range suggestions
+    - perfsprint      # fmt.Sprintf performance
+
+linters-settings:
+  funlen:
+    lines: 130
+    statements: 80
+  gocyclo:
+    min-complexity: 25
+  gocognit:
+    min-complexity: 46
+  cyclop:
+    max-complexity: 25
+  nestif:
+    min-complexity: 14
+  dupl:
+    threshold: 120
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  maintidx:
+    under: 15
+  revive:
+    rules:
+      # Wails requires exported methods without doc comments
+      - name: exported
+        disabled: true
+      - name: unexported-return
+        disabled: true
+  gocritic:
+    disabled-checks:
+      - ifElseChain  # Acceptable in switch-like patterns
+
+issues:
+  exclude-rules:
+    # Allow unsafe.Pointer conversions in the steam FFI package (purego C interop)
+    - path: internal/steam/
+      linters:
+        - govet
+      text: "possible misuse of unsafe.Pointer"
+    # Exclude generated Wails bindings
+    - path: frontend/
+      linters:
+        - dupl

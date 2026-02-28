@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"steamforge/internal/keyvalue"
@@ -37,7 +38,7 @@ func Load(appID uint32, language string) (*GameSchema, error) {
 
 	schema := &GameSchema{AppID: appID}
 
-	appNode := kv.Get(fmt.Sprintf("%d", appID))
+	appNode := kv.Get(strconv.FormatUint(uint64(appID), 10))
 	if len(appNode.Children) == 0 {
 		// ReadBinary unwraps single-root files, so kv itself is the appID node
 		appNode = kv

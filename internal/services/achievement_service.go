@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -18,13 +19,13 @@ const maxAchievementNameLen = 256
 
 func validateAchievementName(name string) error {
 	if name == "" {
-		return fmt.Errorf("achievement name is empty")
+		return errors.New("achievement name is empty")
 	}
 	if len(name) > maxAchievementNameLen {
 		return fmt.Errorf("achievement name too long (%d chars)", len(name))
 	}
 	if strings.ContainsRune(name, 0) {
-		return fmt.Errorf("achievement name contains null byte")
+		return errors.New("achievement name contains null byte")
 	}
 	return nil
 }
@@ -56,7 +57,7 @@ func (s *AchievementService) LoadAchievements(appID uint32) ([]models.Achievemen
 
 	userStats := s.client.UserStats()
 	if userStats == nil || !userStats.IsValid() {
-		return nil, fmt.Errorf("UserStats interface not available")
+		return nil, errors.New("UserStats interface not available")
 	}
 
 	s.mu.RLock()
@@ -80,9 +81,9 @@ func (s *AchievementService) LoadAchievements(appID uint32) ([]models.Achievemen
 		s.statsLoaded = false
 		s.mu.Unlock()
 
-		s.client.Callbacks().RegisterOne(steam.CallbackUserStatsReceived, func(paramPtr uintptr, paramSize int32) {
+		s.client.Callbacks().RegisterOne(steam.CallbackUserStatsReceived, func(paramPtr unsafe.Pointer, paramSize int32) {
 			if paramSize >= int32(unsafe.Sizeof(steam.UserStatsReceived{})) {
-				result := (*steam.UserStatsReceived)(unsafe.Pointer(paramPtr))
+				result := (*steam.UserStatsReceived)(paramPtr)
 				if result.Result == steam.ResultOK {
 					slog.Debug("stats received callback", "appID", appID, "elapsed", time.Since(loadStart))
 					s.mu.Lock()
@@ -246,7 +247,7 @@ func (s *AchievementService) loadFromAPI(appID uint32, userStats *steam.ISteamUs
 		}
 	}
 
-	for i := uint32(0); i < numAchievements; i++ {
+	for i := range numAchievements {
 		name := userStats.GetAchievementName(i)
 		if name == "" {
 			continue
@@ -332,7 +333,7 @@ func (s *AchievementService) SetAchievement(name string) (bool, error) {
 	}
 	userStats := s.client.UserStats()
 	if userStats == nil {
-		return false, fmt.Errorf("UserStats not available")
+		return false, errors.New("UserStats not available")
 	}
 	ok := userStats.SetAchievement(name)
 	slog.Info("set achievement", "name", name, "ok", ok)
@@ -357,7 +358,7 @@ func (s *AchievementService) ClearAchievement(name string) (bool, error) {
 	}
 	userStats := s.client.UserStats()
 	if userStats == nil {
-		return false, fmt.Errorf("UserStats not available")
+		return false, errors.New("UserStats not available")
 	}
 	ok := userStats.ClearAchievement(name)
 	slog.Info("clear achievement", "name", name, "ok", ok)
@@ -380,7 +381,7 @@ func (s *AchievementService) ClearAchievement(name string) (bool, error) {
 func (s *AchievementService) SetAllAchievements() (int, error) {
 	userStats := s.client.UserStats()
 	if userStats == nil {
-		return 0, fmt.Errorf("UserStats not available")
+		return 0, errors.New("UserStats not available")
 	}
 
 	count := 0
@@ -402,7 +403,7 @@ func (s *AchievementService) SetAllAchievements() (int, error) {
 func (s *AchievementService) ClearAllAchievements() (int, error) {
 	userStats := s.client.UserStats()
 	if userStats == nil {
-		return 0, fmt.Errorf("UserStats not available")
+		return 0, errors.New("UserStats not available")
 	}
 
 	count := 0
@@ -425,7 +426,7 @@ func (s *AchievementService) ClearAllAchievements() (int, error) {
 func (s *AchievementService) StoreStats() (bool, error) {
 	userStats := s.client.UserStats()
 	if userStats == nil {
-		return false, fmt.Errorf("UserStats not available")
+		return false, errors.New("UserStats not available")
 	}
 	ok := userStats.StoreStats()
 	slog.Info("store stats", "ok", ok)

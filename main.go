@@ -73,5 +73,4 @@ func main() {
 	}
 
 	slog.Info("SteamForge shutdown")
-	os.Exit(0)
 }

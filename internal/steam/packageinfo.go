@@ -2,6 +2,7 @@ package steam
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -127,7 +128,7 @@ func readPackageVDFAppIDs(br *pkgReader) ([]uint32, error) {
 // "appids" container, int32 values are collected as app IDs.
 func vdfCollectAppIDs(br *pkgReader, depth int, collectInts bool) ([]uint32, error) {
 	if depth > 32 {
-		return nil, fmt.Errorf("VDF nesting too deep")
+		return nil, errors.New("VDF nesting too deep")
 	}
 
 	var appIDs []uint32
@@ -192,7 +193,7 @@ func bvdfValueSize(t byte) (int, error) {
 	case 0x07, 0x0A: // uint64, int64
 		return 8, nil
 	case 0x05: // widestring — variable length, not handled here
-		return 0, fmt.Errorf("widestring not supported in packageinfo context")
+		return 0, errors.New("widestring not supported in packageinfo context")
 	default:
 		return 0, fmt.Errorf("unrecognized type 0x%02X", t)
 	}
@@ -229,7 +230,7 @@ func (r *pkgReader) readCString() (string, error) {
 		}
 		result = append(result, b)
 		if len(result) > 64*1024 {
-			return "", fmt.Errorf("string exceeds 64KB limit")
+			return "", errors.New("string exceeds 64KB limit")
 		}
 	}
 }

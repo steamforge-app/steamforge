@@ -3,6 +3,7 @@
 package steam
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,5 +28,5 @@ func GetInstallPath() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("Steam installation not found")
+	return "", errors.New("Steam installation not found")
 }

@@ -2,6 +2,7 @@ package steam
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -108,7 +109,7 @@ func countAchievementTimes(br *statsReader) (int, error) {
 
 func walkVDFForAchievements(br *statsReader, depth int, inAchTimes bool) (int, error) {
 	if depth > 32 {
-		return 0, fmt.Errorf("VDF nesting too deep")
+		return 0, errors.New("VDF nesting too deep")
 	}
 
 	count := 0
@@ -206,7 +207,7 @@ func (r *statsReader) readCString() (string, error) {
 		}
 		result = append(result, b)
 		if len(result) > 64*1024 {
-			return "", fmt.Errorf("string exceeds 64KB limit")
+			return "", errors.New("string exceeds 64KB limit")
 		}
 	}
 }

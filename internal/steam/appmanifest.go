@@ -2,6 +2,7 @@ package steam
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -114,7 +115,7 @@ func ScanLastPlayed(steamID uint64) map[uint32]uint32 {
 
 	// Account ID is the lower 32 bits of the 64-bit SteamID
 	accountID := uint32(steamID & 0xFFFFFFFF)
-	vdfPath := filepath.Join(installPath, "userdata", fmt.Sprintf("%d", accountID), "config", "localconfig.vdf")
+	vdfPath := filepath.Join(installPath, "userdata", strconv.FormatUint(uint64(accountID), 10), "config", "localconfig.vdf")
 
 	f, err := os.Open(vdfPath)
 	if err != nil {
@@ -228,7 +229,7 @@ func parseAppManifest(path string) (InstalledGame, error) {
 	}
 
 	if g.AppID == 0 {
-		return InstalledGame{}, fmt.Errorf("no appid found")
+		return InstalledGame{}, errors.New("no appid found")
 	}
 	if g.Name == "" {
 		g.Name = fmt.Sprintf("App %d", g.AppID)

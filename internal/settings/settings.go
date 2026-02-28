@@ -2,11 +2,32 @@ package settings
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
+)
+
+// Valid values for settings fields.
+const (
+	SortByName         = "name"
+	SortByAppID        = "appId"
+	SortByLastPlayed   = "lastPlayed"
+	SortByAchievements = "achievements"
+
+	SortAsc  = "asc"
+	SortDesc = "desc"
+
+	ViewGrid = "grid"
+	ViewList = "list"
+
+	AchSortDefault    = "default"
+	AchSortName       = "name"
+	AchSortUnlockTime = "unlockTime"
+	AchSortPercent    = "percent"
 )
 
 // Settings holds user preferences that persist across sessions.
@@ -33,14 +54,14 @@ type Settings struct {
 // Defaults returns settings with sensible default values.
 func Defaults() Settings {
 	return Settings{
-		ViewMode:           "grid",
-		SortBy:             "name",
-		SortOrder:          "asc",
+		ViewMode:           ViewGrid,
+		SortBy:             SortByName,
+		SortOrder:          SortAsc,
 		InstalledOpen:      true,
 		OtherOpen:          true,
 		ShowUnlockDates:    true,
-		AchievementSort:    "unlockTime",
-		AchievementSortDir: "asc",
+		AchievementSort:    AchSortUnlockTime,
+		AchievementSortDir: SortAsc,
 		ShowCardButtons:    true,
 		CardMinWidth:       200,
 		WindowWidth:        1280,
@@ -87,7 +108,7 @@ func userDir() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, "users", fmt.Sprintf("%d", id))
+	return filepath.Join(dir, "users", strconv.FormatUint(id, 10))
 }
 
 // configDir returns the user-specific configuration directory for SteamForge.
@@ -207,7 +228,7 @@ func Save(s Settings) error {
 	mu.Unlock()
 
 	if path == "" {
-		return fmt.Errorf("settings path not available")
+		return errors.New("settings path not available")
 	}
 
 	dir := filepath.Dir(path)
@@ -230,20 +251,20 @@ func Save(s Settings) error {
 
 // validateSettings ensures all settings fields contain valid values.
 func validateSettings(s *Settings) {
-	if s.ViewMode != "grid" && s.ViewMode != "list" {
-		s.ViewMode = "grid"
+	if s.ViewMode != ViewGrid && s.ViewMode != ViewList {
+		s.ViewMode = ViewGrid
 	}
-	if s.SortBy != "name" && s.SortBy != "appId" && s.SortBy != "lastPlayed" && s.SortBy != "achievements" {
-		s.SortBy = "name"
+	if s.SortBy != SortByName && s.SortBy != SortByAppID && s.SortBy != SortByLastPlayed && s.SortBy != SortByAchievements {
+		s.SortBy = SortByName
 	}
-	if s.SortOrder != "asc" && s.SortOrder != "desc" {
-		s.SortOrder = "asc"
+	if s.SortOrder != SortAsc && s.SortOrder != SortDesc {
+		s.SortOrder = SortAsc
 	}
-	if s.AchievementSort != "default" && s.AchievementSort != "name" && s.AchievementSort != "unlockTime" && s.AchievementSort != "percent" {
-		s.AchievementSort = "unlockTime"
+	if s.AchievementSort != AchSortDefault && s.AchievementSort != AchSortName && s.AchievementSort != AchSortUnlockTime && s.AchievementSort != AchSortPercent {
+		s.AchievementSort = AchSortUnlockTime
 	}
-	if s.AchievementSortDir != "asc" && s.AchievementSortDir != "desc" {
-		s.AchievementSortDir = "asc"
+	if s.AchievementSortDir != SortAsc && s.AchievementSortDir != SortDesc {
+		s.AchievementSortDir = SortAsc
 	}
 	if s.CardMinWidth < 150 || s.CardMinWidth > 400 {
 		s.CardMinWidth = 200

@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -57,7 +58,7 @@ func LogPath() string {
 func ReadLog() (string, error) {
 	path := LogPath()
 	if path == "" {
-		return "", fmt.Errorf("log path not available")
+		return "", errors.New("log path not available")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

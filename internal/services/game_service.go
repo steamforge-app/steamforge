@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -91,8 +92,17 @@ type GameService struct {
 	client *steam.Client
 	ctx    context.Context
 
-	mu    sync.RWMutex
-	games []models.GameInfo
+	mu            sync.RWMutex
+	games         []models.GameInfo
+	installedApps map[uint32]bool
+}
+
+func newGameInfo(appID uint32, name string) models.GameInfo {
+	return models.GameInfo{
+		AppID:   appID,
+		Name:    name,
+		LogoURL: fmt.Sprintf(headerImageURL, appID),
+	}
 }
 
 func NewGameService(client *steam.Client) *GameService {
@@ -103,6 +113,14 @@ func NewGameService(client *steam.Client) *GameService {
 
 func (s *GameService) SetContext(ctx context.Context) {
 	s.ctx = ctx
+}
+
+// SetInstalledApps updates the cached set of installed app IDs.
+// Called by the install watcher when appmanifest changes are detected.
+func (s *GameService) SetInstalledApps(apps map[uint32]bool) {
+	s.mu.Lock()
+	s.installedApps = apps
+	s.mu.Unlock()
 }
 
 type xmlGamesList struct {
@@ -178,7 +196,7 @@ func (s *GameService) fetchFromSources(cached map[uint32]settings.CachedGame) ([
 
 	games := s.gamesFromCache(cached)
 	if len(games) == 0 {
-		return nil, fmt.Errorf("all game sources failed and cache is empty")
+		return nil, errors.New("all game sources failed and cache is empty")
 	}
 	slog.Info("games loaded from cache", "count", len(games))
 	return games, nil
@@ -195,18 +213,27 @@ func (s *GameService) enrichMetadata(games []models.GameInfo) {
 		}
 	}
 
-	installed, scanErr := steam.ScanInstalledGames()
-	if scanErr == nil {
-		installedSet := make(map[uint32]bool, len(installed))
-		for _, g := range installed {
-			installedSet[g.AppID] = true
-		}
-		for i := range games {
-			if installedSet[games[i].AppID] {
-				games[i].Installed = true
+	// Use cached installed map from the install watcher. Fall back to
+	// a filesystem scan if the watcher hasn't provided data yet.
+	s.mu.RLock()
+	installedSet := s.installedApps
+	s.mu.RUnlock()
+
+	if installedSet == nil {
+		scanned, err := steam.ScanInstalledGames()
+		if err == nil {
+			installedSet = make(map[uint32]bool, len(scanned))
+			for _, g := range scanned {
+				installedSet[g.AppID] = true
 			}
 		}
-		slog.Info("tagged installed games", "installed", len(installed), "total", len(games))
+	}
+
+	if installedSet != nil {
+		for i := range games {
+			games[i].Installed = installedSet[games[i].AppID]
+		}
+		slog.Info("tagged installed games", "total", len(games))
 	}
 }
 
@@ -285,7 +312,7 @@ func (s *GameService) fetchFromPackageInfo() ([]models.GameInfo, error) {
 	apps := s.client.Apps()
 	apps001 := s.client.Apps001()
 	if apps == nil || apps001 == nil {
-		return nil, fmt.Errorf("ISteamApps interfaces not available")
+		return nil, errors.New("ISteamApps interfaces not available")
 	}
 
 	appIDs, err := steam.ScanPackageAppIDs()
@@ -303,11 +330,7 @@ func (s *GameService) fetchFromPackageInfo() ([]models.GameInfo, error) {
 		if name == "" {
 			continue
 		}
-		game := models.GameInfo{
-			AppID:   appID,
-			Name:    name,
-			LogoURL: fmt.Sprintf(headerImageURL, appID),
-		}
+		game := newGameInfo(appID, name)
 		appType := apps001.GetAppData(appID, "type")
 		if appType != "" && isSoftwareAppType(appType) {
 			game.IsSoftware = true
@@ -370,7 +393,7 @@ func (s *GameService) fetchFromXML() ([]models.GameInfo, error) {
 	}
 
 	if len(games) == 0 {
-		return nil, fmt.Errorf("XML returned games but all had appID=0")
+		return nil, errors.New("XML returned games but all had appID=0")
 	}
 
 	slog.Info("games fetched from XML", "count", len(games))
@@ -389,7 +412,7 @@ type steamAppListResponse struct {
 func (s *GameService) fetchFromSteamWebAPI() ([]models.GameInfo, error) {
 	apps := s.client.Apps()
 	if apps == nil {
-		return nil, fmt.Errorf("ISteamApps not available")
+		return nil, errors.New("ISteamApps not available")
 	}
 
 	slog.Info("fetching full app list from Steam Web API")
@@ -418,15 +441,11 @@ func (s *GameService) fetchFromSteamWebAPI() ([]models.GameInfo, error) {
 		if !apps.BIsSubscribedApp(app.AppID) {
 			continue
 		}
-		games = append(games, models.GameInfo{
-			AppID:   app.AppID,
-			Name:    app.Name,
-			LogoURL: fmt.Sprintf(headerImageURL, app.AppID),
-		})
+		games = append(games, newGameInfo(app.AppID, app.Name))
 	}
 
 	if len(games) == 0 {
-		return nil, fmt.Errorf("Steam Web API: 0 owned games found")
+		return nil, errors.New("Steam Web API: 0 owned games found")
 	}
 
 	slog.Info("games fetched from Steam Web API", "owned", len(games))
@@ -437,7 +456,7 @@ func (s *GameService) fetchFromLocalAPI() ([]models.GameInfo, error) {
 	apps := s.client.Apps()
 	apps001 := s.client.Apps001()
 	if apps == nil || apps001 == nil {
-		return nil, fmt.Errorf("ISteamApps interfaces not available")
+		return nil, errors.New("ISteamApps interfaces not available")
 	}
 
 	candidates := make(map[uint32]bool)
@@ -453,7 +472,7 @@ func (s *GameService) fetchFromLocalAPI() ([]models.GameInfo, error) {
 	}
 
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("no candidate app IDs found locally")
+		return nil, errors.New("no candidate app IDs found locally")
 	}
 
 	var games []models.GameInfo
@@ -465,11 +484,7 @@ func (s *GameService) fetchFromLocalAPI() ([]models.GameInfo, error) {
 		if name == "" {
 			name = fmt.Sprintf("App %d", appID)
 		}
-		games = append(games, models.GameInfo{
-			AppID:   appID,
-			Name:    name,
-			LogoURL: fmt.Sprintf(headerImageURL, appID),
-		})
+		games = append(games, newGameInfo(appID, name))
 	}
 
 	if len(games) == 0 {
@@ -490,11 +505,7 @@ func (s *GameService) fetchFromLocal() ([]models.GameInfo, error) {
 
 	games := make([]models.GameInfo, 0, len(installed))
 	for _, g := range installed {
-		games = append(games, models.GameInfo{
-			AppID:   g.AppID,
-			Name:    g.Name,
-			LogoURL: fmt.Sprintf(headerImageURL, g.AppID),
-		})
+		games = append(games, newGameInfo(g.AppID, g.Name))
 	}
 
 	slog.Info("games fetched from local scan", "count", len(games))

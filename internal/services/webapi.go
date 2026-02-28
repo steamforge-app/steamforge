@@ -8,11 +8,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"steamforge/internal/models"
 )
+
+const privacyPublic = "public"
 
 // percentCache caches global achievement percentages per appID.
 var percentCache struct {
@@ -104,7 +107,7 @@ func (w *SteamWebAPI) GetPlayerAchievements(appID uint32) (int, int, error) {
 	if result.Error != "" {
 		return 0, 0, fmt.Errorf("steam: %s", result.Error)
 	}
-	if result.PrivacyState != "" && result.PrivacyState != "public" {
+	if result.PrivacyState != "" && result.PrivacyState != privacyPublic {
 		return 0, 0, fmt.Errorf("profile is %s", result.PrivacyState)
 	}
 
@@ -134,7 +137,7 @@ func (w *SteamWebAPI) GetFullAchievements(appID uint32) ([]models.Achievement, e
 	if result.Error != "" {
 		return nil, fmt.Errorf("steam: %s", result.Error)
 	}
-	if result.PrivacyState != "" && result.PrivacyState != "public" {
+	if result.PrivacyState != "" && result.PrivacyState != privacyPublic {
 		return nil, fmt.Errorf("profile is %s", result.PrivacyState)
 	}
 
@@ -296,7 +299,7 @@ func (w *SteamWebAPI) CheckEarlyAccess(appID uint32) bool {
 		return false
 	}
 
-	appData, ok := result[fmt.Sprintf("%d", appID)]
+	appData, ok := result[strconv.FormatUint(uint64(appID), 10)]
 	if !ok || !appData.Success {
 		return false
 	}
@@ -348,7 +351,7 @@ func (w *SteamWebAPI) CheckProfileVisibility() (string, error) {
 	}
 
 	if result.PrivacyState == "" {
-		return "public", nil // No privacy element means public
+		return privacyPublic, nil // No privacy element means public
 	}
 	return result.PrivacyState, nil
 }

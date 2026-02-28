@@ -2,6 +2,7 @@ package cache
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -35,7 +36,7 @@ var httpClient = &http.Client{
 			return fmt.Errorf("redirect to disallowed host: %s", req.URL.Hostname())
 		}
 		if len(via) >= 3 {
-			return fmt.Errorf("too many redirects")
+			return errors.New("too many redirects")
 		}
 		return nil
 	},

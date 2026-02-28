@@ -39,16 +39,17 @@ func (c *CString) Free() {
 
 // GoString converts a C string pointer to a Go string.
 // Returns empty string if ptr is 0.
+// The ptr parameter is a C string pointer from Steam SDK calls.
 func GoString(ptr uintptr) string {
 	if ptr == 0 {
 		return ""
 	}
 
 	// Find null terminator
-	p := unsafe.Pointer(ptr)
+	p := unsafe.Pointer(ptr) //nolint:govet // C string pointer from Steam SDK
 	length := 0
 	for {
-		b := *(*byte)(unsafe.Pointer(uintptr(p) + uintptr(length)))
+		b := *(*byte)(unsafe.Add(p, length))
 		if b == 0 {
 			break
 		}

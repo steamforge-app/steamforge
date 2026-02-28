@@ -6,7 +6,7 @@ import (
 	"unsafe"
 )
 
-type CallbackHandler func(paramPtr uintptr, paramSize int32)
+type CallbackHandler func(paramPtr unsafe.Pointer, paramSize int32)
 
 type CallbackDispatcher struct {
 	lib      Library
