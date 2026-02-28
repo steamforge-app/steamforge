@@ -94,6 +94,7 @@ export namespace settings {
 	    achievementSortDir: string;
 	    showSoftware: boolean;
 	    showCardButtons: boolean;
+	    protectLastPlayed: boolean;
 	    cardMinWidth: number;
 	    windowWidth: number;
 	    windowHeight: number;
@@ -118,6 +119,7 @@ export namespace settings {
 	        this.achievementSortDir = source["achievementSortDir"];
 	        this.showSoftware = source["showSoftware"];
 	        this.showCardButtons = source["showCardButtons"];
+	        this.protectLastPlayed = source["protectLastPlayed"];
 	        this.cardMinWidth = source["cardMinWidth"];
 	        this.windowWidth = source["windowWidth"];
 	        this.windowHeight = source["windowHeight"];
