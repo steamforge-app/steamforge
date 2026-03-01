@@ -45,6 +45,7 @@ type Settings struct {
 	AchievementSortDir string `json:"achievementSortDir"`
 	ShowSoftware       bool   `json:"showSoftware"`
 	ShowCardButtons    bool   `json:"showCardButtons"`
+	ProtectLastPlayed  bool   `json:"protectLastPlayed"`
 	CardMinWidth       int    `json:"cardMinWidth"`
 	WindowWidth        int    `json:"windowWidth"`
 	WindowHeight       int    `json:"windowHeight"`

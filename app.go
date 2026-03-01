@@ -180,9 +180,9 @@ func (a *App) reconnectForGame(appID uint32) error {
 
 func (a *App) DisconnectGame() error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 
 	if a.steamClient == nil || a.steamClient.CurrentAppID == 0 {
+		a.mu.Unlock()
 		return nil
 	}
 
@@ -192,6 +192,11 @@ func (a *App) DisconnectGame() error {
 	a.steamClient = nil
 	a.achieveService = nil
 	a.gameService = nil
+	a.mu.Unlock()
+
+	// Restore the base connection (appID=0) so Steam no longer thinks
+	// we're running the game.
+	a.restoreBaseConnection()
 
 	slog.Info("disconnected from game")
 	return nil
