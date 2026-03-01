@@ -540,6 +540,8 @@
         addToast('Changes saved', 'success');
         snapshotState();
         syncAchievementCounts();
+        DisconnectGame().catch(() => {});
+        gameConnected = false;
       } else {
         addToast('Store returned false - changes may not have been saved', 'error');
       }
@@ -578,6 +580,9 @@
 
   function performGameSwitch(game: GameInfo) {
     stopPercentPolling();
+    if (gameConnected) {
+      DisconnectGame().catch(() => {});
+    }
     gameConnected = false;
     gameComplete.set(false);
     if (scrollElement) scrollElement.scrollTop = 0;

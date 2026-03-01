@@ -191,17 +191,9 @@ func (a *App) DisconnectGame() error {
 	a.steamClient.Close()
 	a.steamClient = nil
 	a.achieveService = nil
+	a.gameService = nil
 
-	client, gameService, _, err := a.initClient(0)
-	if err != nil {
-		slog.Error("reconnect after disconnect failed", "error", err)
-		return fmt.Errorf("reconnect: %w", err)
-	}
-
-	a.steamClient = client
-	a.gameService = gameService
-
-	slog.Info("disconnected from game, reconnected with appID=0")
+	slog.Info("disconnected from game")
 	return nil
 }
 
