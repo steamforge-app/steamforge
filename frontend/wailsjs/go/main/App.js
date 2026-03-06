@@ -62,6 +62,10 @@ export function GetLogContent() {
   return window['go']['main']['App']['GetLogContent']();
 }
 
+export function GetPersonaName() {
+  return window['go']['main']['App']['GetPersonaName']();
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }

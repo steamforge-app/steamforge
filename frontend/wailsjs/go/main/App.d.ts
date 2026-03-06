@@ -34,6 +34,8 @@ export function GetImageBase64(arg1:string):Promise<string>;
 
 export function GetLogContent():Promise<string>;
 
+export function GetPersonaName():Promise<string>;
+
 export function GetSettings():Promise<settings.Settings>;
 
 export function IsConnected():Promise<boolean>;

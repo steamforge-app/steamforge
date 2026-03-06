@@ -44,6 +44,7 @@ type App struct {
 	scanDone   chan struct{}
 
 	installWatcher *steam.InstallWatcher
+	accountWatcher *steam.AccountWatcher
 }
 
 func NewApp() *App {
@@ -70,6 +71,7 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.stopScan()
+	a.stopAccountWatcher()
 	a.stopInstallWatcher()
 
 	a.mu.RLock()
@@ -137,8 +139,21 @@ func (a *App) ConnectSteam() (uint64, error) {
 	settings.SetCurrentUser(client.SteamID())
 
 	a.startInstallWatcher()
+	a.startAccountWatcher(client.SteamID())
 
 	return client.SteamID(), nil
+}
+
+// GetPersonaName returns the current Steam user's display name.
+func (a *App) GetPersonaName() string {
+	a.mu.RLock()
+	client := a.steamClient
+	a.mu.RUnlock()
+
+	if client == nil {
+		return ""
+	}
+	return client.PersonaName()
 }
 
 func (a *App) IsConnected() bool {
@@ -632,6 +647,88 @@ func (a *App) stopInstallWatcher() {
 	if watcher != nil {
 		watcher.Close()
 	}
+}
+
+func (a *App) startAccountWatcher(steamID uint64) {
+	a.stopAccountWatcher()
+
+	watcher, err := steam.NewAccountWatcher(steamID, a.handleAccountChange)
+	if err != nil {
+		slog.Warn("failed to start account watcher", "error", err)
+		return
+	}
+
+	a.mu.Lock()
+	a.accountWatcher = watcher
+	a.mu.Unlock()
+}
+
+func (a *App) stopAccountWatcher() {
+	a.mu.Lock()
+	watcher := a.accountWatcher
+	a.accountWatcher = nil
+	a.mu.Unlock()
+
+	if watcher != nil {
+		watcher.Close()
+	}
+}
+
+func (a *App) handleAccountChange(newSteamID uint64) {
+	slog.Info("account switch detected", "newSteamID", newSteamID)
+
+	// Tear down current state
+	a.stopScan()
+	a.stopInstallWatcher()
+
+	a.mu.Lock()
+	oldClient := a.steamClient
+	a.steamClient = nil
+	a.gameService = nil
+	a.achieveService = nil
+	a.mu.Unlock()
+
+	if oldClient != nil {
+		oldClient.Close()
+	}
+
+	// Steam needs time to finish the account switch before we can reconnect.
+	// Retry for up to 30 seconds.
+	var client *steam.Client
+	var gameService *services.GameService
+	var achieveService *services.AchievementService
+	for attempt := range 10 {
+		time.Sleep(3 * time.Second)
+		var err error
+		client, gameService, achieveService, err = a.initClient(0)
+		if err == nil {
+			break
+		}
+		slog.Debug("account switch reconnect attempt", "attempt", attempt+1, "error", err)
+	}
+
+	if client == nil {
+		slog.Error("failed to reconnect after account switch")
+		wailsRuntime.EventsEmit(a.ctx, "steam-disconnected", nil)
+		return
+	}
+
+	a.mu.Lock()
+	a.steamClient = client
+	a.gameService = gameService
+	a.achieveService = achieveService
+	a.mu.Unlock()
+
+	settings.SetCurrentUser(client.SteamID())
+	a.startInstallWatcher()
+
+	personaName := client.PersonaName()
+
+	slog.Info("reconnected after account switch", "steamID", client.SteamID(), "persona", personaName)
+	wailsRuntime.EventsEmit(a.ctx, "account-changed", map[string]any{
+		"steamId":     strconv.FormatUint(client.SteamID(), 10),
+		"personaName": personaName,
+	})
 }
 
 func (a *App) restoreBaseConnection() {

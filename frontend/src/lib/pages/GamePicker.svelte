@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { games, gamesLoading, searchQuery, achievementCounts } from '../stores/games';
-  import { currentPage, isConnected, steamId, addToast, isLoading, loadingMessage, scanning, scanProgress, profilePublic, gameFilter } from '../stores/app';
+  import { currentPage, isConnected, steamId, personaName, addToast, isLoading, loadingMessage, scanning, scanProgress, profilePublic, gameFilter } from '../stores/app';
   import type { GameFilter } from '../stores/app';
   import { settings, updateSetting, updateSettingDebounced, loadSettings, setSortColumn } from '../stores/settings';
   import type { Settings } from '../stores/settings';
@@ -10,7 +10,7 @@
   import GameGrid from '../components/GameGrid.svelte';
   import ContextMenu from '../components/ContextMenu.svelte';
   import SettingsPanel from '../components/SettingsPanel.svelte';
-  import { ConnectSteam, FetchGames, GetAchievementCounts, ScanAchievementCounts } from '../../../wailsjs/go/main/App';
+  import { ConnectSteam, FetchGames, GetAchievementCounts, ScanAchievementCounts, GetPersonaName } from '../../../wailsjs/go/main/App';
   import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime';
 
   let retryInterval = $state<ReturnType<typeof setInterval> | null>(null);
@@ -33,6 +33,7 @@
         stopRetry();
         isConnected.set(true);
         steamId.set(id.toString());
+        GetPersonaName().then(name => personaName.set(name)).catch(() => {});
         isLoading.set(false);
         loadingMessage.set('');
         await loadSettings();
@@ -49,6 +50,7 @@
   }
 
   onMount(async () => {
+    window.addEventListener('steamforge-account-changed', handleAccountChanged);
     await loadSettings();
 
     if (!$isConnected) {
@@ -64,8 +66,23 @@
     }
   });
 
+  function handleAccountChanged() {
+    stopRetry();
+    if ($isConnected) {
+      loadSettings().then(() => loadGames()).then(() => {
+        try {
+          GetAchievementCounts().then(counts => achievementCounts.set(counts || {}));
+        } catch { /* cache not critical */ }
+        startScan();
+      });
+    } else {
+      startRetry();
+    }
+  }
+
   onDestroy(() => {
     stopRetry();
+    window.removeEventListener('steamforge-account-changed', handleAccountChanged);
   });
 
   function startScan() {
@@ -98,6 +115,7 @@
       stopRetry();
       isConnected.set(true);
       steamId.set(id.toString());
+      GetPersonaName().then(name => personaName.set(name)).catch(() => {});
       // Reload settings now that per-user config is available
       await loadSettings();
       await loadGames();

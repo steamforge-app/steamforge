@@ -39,6 +39,13 @@ func (c *ISteamClient) GetISteamUser(pipe, user int32, version string) uintptr {
 	return CallProc(ReadVtableSlot(c.ptr, 5), c.ptr, uintptr(pipe), uintptr(user), cs.Ptr())
 }
 
+// Slot 8
+func (c *ISteamClient) GetISteamFriends(pipe, user int32, version string) uintptr {
+	cs := NewCString(version)
+	defer cs.Free()
+	return CallProc(ReadVtableSlot(c.ptr, 8), c.ptr, uintptr(pipe), uintptr(user), cs.Ptr())
+}
+
 // Slot 9
 func (c *ISteamClient) GetISteamUtils(pipe int32, version string) uintptr {
 	cs := NewCString(version)

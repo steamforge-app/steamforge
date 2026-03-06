@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { currentPage, isConnected, steamId, scanning, scanProgress, profilePublic, gameComplete, selectedAppId } from './lib/stores/app';
+  import { currentPage, isConnected, steamId, personaName, scanning, scanProgress, profilePublic, gameComplete, selectedAppId, addToast } from './lib/stores/app';
   import { games, achievementCounts, navigableGames } from './lib/stores/games';
   import { settings } from './lib/stores/settings';
   import { achievementsLoading } from './lib/stores/achievements';
@@ -59,6 +59,35 @@
         ...game,
         installed: data[String(game.appId)] ?? false
       })));
+    });
+    EventsOn('account-changed', (data: any) => {
+      // Reset all state for the new account
+      steamId.set(data.steamId);
+      personaName.set(data.personaName || '');
+      isConnected.set(true);
+      games.set([]);
+      achievementCounts.set({});
+      scanning.set(false);
+      scanProgress.set({ current: 0, total: 0, name: '' });
+      profilePublic.set('unknown');
+      if ($currentPage === 'manager') {
+        currentPage.set('picker');
+      }
+      addToast(`Switched to ${data.personaName || 'new account'}`, 'info');
+      // Trigger re-fetch by emitting a custom event the GamePicker listens for
+      window.dispatchEvent(new CustomEvent('steamforge-account-changed'));
+    });
+    EventsOn('steam-disconnected', () => {
+      isConnected.set(false);
+      personaName.set('');
+      games.set([]);
+      achievementCounts.set({});
+      scanning.set(false);
+      if ($currentPage === 'manager') {
+        currentPage.set('picker');
+      }
+      // GamePicker will detect isConnected=false and enter retry
+      window.dispatchEvent(new CustomEvent('steamforge-account-changed'));
     });
   });
 
@@ -162,7 +191,7 @@
       {#if $isConnected}
         <span class="flex items-center gap-1.5">
           <span class="w-1.5 h-1.5 rounded-full bg-steam-success"></span>
-          <span class="text-steam-text-dim">Connected</span>
+          <span class="text-steam-text-dim">{$personaName || 'Connected'}</span>
         </span>
       {:else}
         <span class="flex items-center gap-1.5">

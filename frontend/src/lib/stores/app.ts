@@ -8,6 +8,7 @@ export const selectedGameName = writable<string>('');
 export const selectedGameInstalled = writable<boolean>(false);
 export const isConnected = writable<boolean>(false);
 export const steamId = writable<string>('');
+export const personaName = writable<string>('');
 export const isLoading = writable<boolean>(false);
 export const loadingMessage = writable<string>('');
 export const scanning = writable<boolean>(false);
@@ -28,18 +29,21 @@ export interface ToastMessage {
   text: string;
   type: 'success' | 'error' | 'info';
   action?: ToastAction;
+  persistent?: boolean;
 }
 
 let toastId = 0;
 export const toasts = writable<ToastMessage[]>([]);
 
-export function addToast(text: string, type: 'success' | 'error' | 'info' = 'info', action?: ToastAction) {
+export function addToast(text: string, type: 'success' | 'error' | 'info' = 'info', action?: ToastAction, persistent = false) {
   const id = ++toastId;
-  toasts.update(current => [...current, { id, text, type, action }]);
-  const timeout = action ? 6000 : 4000;
-  setTimeout(() => {
-    toasts.update(current => current.filter(toast => toast.id !== id));
-  }, timeout);
+  toasts.update(current => [...current, { id, text, type, action, persistent }]);
+  if (!persistent) {
+    const timeout = action ? 6000 : 4000;
+    setTimeout(() => {
+      toasts.update(current => current.filter(toast => toast.id !== id));
+    }, timeout);
+  }
 }
 
 export function dismissToast(id: number) {

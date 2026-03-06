@@ -35,6 +35,7 @@ type Client struct {
 	steamApps      *ISteamApps
 	steamApps001   *ISteamApps001
 	steamUtils     *ISteamUtils
+	steamFriends   *ISteamFriends
 
 	// Current game context
 	CurrentAppID uint32
@@ -126,6 +127,14 @@ func NewClient(appID uint32) (*Client, error) {
 		client.steamUtils = NewISteamUtils(utilsPtr)
 	}
 
+	friendsPtr := steamClient.GetISteamFriends(pipe, user, "SteamFriends017")
+	if friendsPtr != 0 {
+		client.steamFriends = NewISteamFriends(friendsPtr)
+		slog.Info("ISteamFriends initialized", "persona", client.steamFriends.GetPersonaName())
+	} else {
+		slog.Warn("GetISteamFriends returned null")
+	}
+
 	// ISteamApps is always available (needed for game enumeration even at appID=0)
 	appsPtr := steamClient.GetISteamApps(pipe, user, "STEAMAPPS_INTERFACE_VERSION008")
 	if appsPtr != 0 {
@@ -208,6 +217,18 @@ func (c *Client) Utils() *ISteamUtils {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.steamUtils
+}
+
+func (c *Client) PersonaName() string {
+	if name := ParsePersonaName(c.steamID); name != "" {
+		return name
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.steamFriends == nil {
+		return ""
+	}
+	return c.steamFriends.GetPersonaName()
 }
 
 func (c *Client) Callbacks() *CallbackDispatcher {
