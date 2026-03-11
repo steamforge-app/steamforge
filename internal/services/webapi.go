@@ -262,26 +262,33 @@ func (w *SteamWebAPI) fetchGlobalPercents(appID uint32) map[string]float32 {
 	return percents
 }
 
-// CheckEarlyAccess checks if a game is in Early Access via the Steam Store API.
-// Detects both the "Early Access" genre tag (ID 70) and unreleased games (coming_soon).
-func (w *SteamWebAPI) CheckEarlyAccess(appID uint32) bool {
+// ReleaseInfo holds release metadata for a game from the Steam Store API.
+type ReleaseInfo struct {
+	EarlyAccess bool
+	ReleaseDate string // "YYYY-MM-DD", "unreleased", or ""
+}
+
+// GetReleaseInfo fetches release date and early access status via the Steam Store API.
+// Returns ReleaseDate as "YYYY-MM-DD" for released games, "unreleased" for early access
+// or coming-soon titles, and "" if the API call fails.
+func (w *SteamWebAPI) GetReleaseInfo(appID uint32) ReleaseInfo {
 	rawURL := fmt.Sprintf("https://store.steampowered.com/api/appdetails?appids=%d&filters=genres,release_date", appID)
 	req, err := http.NewRequestWithContext(w.ctx, "GET", rawURL, nil)
 	if err != nil {
-		return false
+		return ReleaseInfo{}
 	}
 	resp, err := w.client.Do(req)
 	if err != nil {
-		return false
+		return ReleaseInfo{}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return false
+		return ReleaseInfo{}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
 	if err != nil {
-		return false
+		return ReleaseInfo{}
 	}
 
 	var result map[string]struct {
@@ -291,24 +298,61 @@ func (w *SteamWebAPI) CheckEarlyAccess(appID uint32) bool {
 				ID string `json:"id"`
 			} `json:"genres"`
 			ReleaseDate struct {
-				ComingSoon bool `json:"coming_soon"`
+				ComingSoon bool   `json:"coming_soon"`
+				Date       string `json:"date"`
 			} `json:"release_date"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return false
+		return ReleaseInfo{}
 	}
 
 	appData, ok := result[strconv.FormatUint(uint64(appID), 10)]
 	if !ok || !appData.Success {
-		return false
+		return ReleaseInfo{}
 	}
-	for _, genre := range appData.Data.Genres {
-		if genre.ID == "70" { // Early Access genre ID
-			return true
+
+	isEarlyAccess := appData.Data.ReleaseDate.ComingSoon
+	if !isEarlyAccess {
+		for _, genre := range appData.Data.Genres {
+			if genre.ID == "70" { // Early Access genre ID
+				isEarlyAccess = true
+				break
+			}
 		}
 	}
-	return appData.Data.ReleaseDate.ComingSoon
+
+	if isEarlyAccess {
+		return ReleaseInfo{EarlyAccess: true, ReleaseDate: "unreleased"}
+	}
+
+	releaseDate := parseSteamDate(appData.Data.ReleaseDate.Date)
+	return ReleaseInfo{EarlyAccess: false, ReleaseDate: releaseDate}
+}
+
+// parseSteamDate converts Steam's display date (e.g. "Jan 15, 2020" or "15 Jan, 2020")
+// into "YYYY-MM-DD" format. Returns the original string if parsing fails.
+func parseSteamDate(raw string) string {
+	if raw == "" {
+		return "unreleased"
+	}
+	formats := []string{
+		"Jan 2, 2006",
+		"2 Jan, 2006",
+		"January 2, 2006",
+		"2 January, 2006",
+		"Jan 2006",
+		"January 2006",
+	}
+	for _, layout := range formats {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.Format("2006-01-02")
+		}
+	}
+	// Unparseable but non-empty — treat as released with unknown date.
+	// Store raw string so it's visible in the cache for debugging.
+	slog.Debug("unparseable steam release date", "raw", raw)
+	return raw
 }
 
 // CheckProfileVisibility checks if the user's Steam community profile is public.

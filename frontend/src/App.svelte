@@ -45,7 +45,7 @@
     EventsOn('scan-counts', (data: any) => {
       achievementCounts.update(counts => ({
         ...counts,
-        [String(data.appId)]: { achieved: data.achieved, total: data.total, earlyAccess: data.earlyAccess || false }
+        [String(data.appId)]: { achieved: data.achieved, total: data.total, earlyAccess: data.earlyAccess || false, releaseDate: data.releaseDate || '' }
       }));
     });
     EventsOn('scan-complete', () => {

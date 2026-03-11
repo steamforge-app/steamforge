@@ -10,9 +10,10 @@ import (
 )
 
 type AchievementCount struct {
-	Achieved    int  `json:"achieved"`
-	Total       int  `json:"total"`
-	EarlyAccess bool `json:"earlyAccess,omitempty"`
+	Achieved    int    `json:"achieved"`
+	Total       int    `json:"total"`
+	EarlyAccess bool   `json:"earlyAccess,omitempty"`
+	ReleaseDate string `json:"releaseDate,omitempty"`
 }
 
 const cacheFlushDelay = 500 * time.Millisecond
@@ -106,8 +107,9 @@ func ClearNonPerfectedCache() {
 
 	for appID, entry := range achCache {
 		isPerfected := entry.Total > 0 && entry.Achieved == entry.Total
-		isReleasedNoAchievements := entry.Total == 0 && !entry.EarlyAccess
-		if !isPerfected && !isReleasedNoAchievements {
+		isOldReleaseNoAchievements := entry.Total == 0 &&
+			entry.ReleaseDate != "" && entry.ReleaseDate != "unreleased"
+		if !isPerfected && !isOldReleaseNoAchievements {
 			delete(achCache, appID)
 		}
 	}
@@ -127,6 +129,17 @@ func SaveAchievementCounts(appID uint32, achieved, total int) {
 // SaveAchievementCountsEarlyAccess saves counts and marks the game as early access.
 func SaveAchievementCountsEarlyAccess(appID uint32, achieved, total int, earlyAccess bool) {
 	saveAchievementEntry(appID, AchievementCount{Achieved: achieved, Total: total, EarlyAccess: earlyAccess})
+}
+
+// SaveAchievementCountsRelease saves counts with a release date.
+// EarlyAccess is derived: true when releaseDate is "unreleased".
+func SaveAchievementCountsRelease(appID uint32, achieved, total int, releaseDate string) {
+	saveAchievementEntry(appID, AchievementCount{
+		Achieved:    achieved,
+		Total:       total,
+		EarlyAccess: releaseDate == "unreleased",
+		ReleaseDate: releaseDate,
+	})
 }
 
 func saveAchievementEntry(appID uint32, entry AchievementCount) {

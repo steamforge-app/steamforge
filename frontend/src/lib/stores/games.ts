@@ -15,6 +15,7 @@ export interface AchievementCount {
   achieved: number;
   total: number;
   earlyAccess?: boolean;
+  releaseDate?: string;
 }
 
 export const games = writable<GameInfo[]>([]);

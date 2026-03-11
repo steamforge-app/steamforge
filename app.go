@@ -477,17 +477,17 @@ func (a *App) CheckGameEarlyAccess(appID uint32) (bool, error) {
 	}
 
 	webAPI := services.NewSteamWebAPI(client.SteamID(), a.ctx)
-	earlyAccess := webAPI.CheckEarlyAccess(appID)
+	info := webAPI.GetReleaseInfo(appID)
 
-	// Persist the earlyAccess flag in the achievement cache
+	// Persist the release info in the achievement cache
 	cached := settings.LoadAchievementCache()
 	if entry, ok := cached[appID]; ok {
-		settings.SaveAchievementCountsEarlyAccess(appID, entry.Achieved, entry.Total, earlyAccess)
+		settings.SaveAchievementCountsRelease(appID, entry.Achieved, entry.Total, info.ReleaseDate)
 	} else {
-		settings.SaveAchievementCountsEarlyAccess(appID, 0, 0, earlyAccess)
+		settings.SaveAchievementCountsRelease(appID, 0, 0, info.ReleaseDate)
 	}
 
-	return earlyAccess, nil
+	return info.EarlyAccess, nil
 }
 
 func (a *App) GetImageBase64(url string) (string, error) {
@@ -531,8 +531,12 @@ func (a *App) ScanAchievementCounts() {
 			if schemaTotal, hasSchema := services.HasAchievementsFromSchema(game.AppID); hasSchema && schemaTotal != entry.Total {
 				toScan = append(toScan, game)
 			}
-		} else if entry.Total == 0 && !entry.EarlyAccess {
-			// Released game with no achievements — check if achievements were added
+		} else if entry.Total == 0 {
+			// No achievements — skip old releases entirely
+			if isOldRelease(entry) {
+				continue
+			}
+			// Recent, early access, or unknown release date — check if achievements were added
 			if schemaTotal, hasSchema := services.HasAchievementsFromSchema(game.AppID); hasSchema && schemaTotal > 0 {
 				toScan = append(toScan, game)
 			}
@@ -779,18 +783,19 @@ func (a *App) runAchievementScan(ctx context.Context, gamesToScan []models.GameI
 			continue
 		}
 		if total == 0 {
-			// Schema confirms no achievements — check if cache already has earlyAccess info
-			if existing, ok := cached[game.AppID]; ok {
-				settings.SaveAchievementCountsEarlyAccess(game.AppID, 0, 0, existing.EarlyAccess)
+			// Schema confirms no achievements — preserve existing release info from cache
+			if existing, ok := cached[game.AppID]; ok && existing.ReleaseDate != "" {
+				settings.SaveAchievementCountsRelease(game.AppID, 0, 0, existing.ReleaseDate)
 				schemaResolved++
 				wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
 					"appId":       game.AppID,
 					"achieved":    0,
 					"total":       0,
 					"earlyAccess": existing.EarlyAccess,
+					"releaseDate": existing.ReleaseDate,
 				})
 			} else {
-				// Never checked — send to web API for earlyAccess determination
+				// No release date cached — send to web API for release info
 				remaining = append(remaining, game)
 			}
 			continue
@@ -830,6 +835,26 @@ func (a *App) runAchievementScan(ctx context.Context, gamesToScan []models.GameI
 
 	// No client or no games remaining
 	a.finalizeScan()
+}
+
+// isOldRelease returns true if the cached entry has a known release date older than 6 months.
+// Returns false for "unreleased", empty (unknown), or recent dates.
+func isOldRelease(entry settings.AchievementCount) bool {
+	rd := entry.ReleaseDate
+	if rd == "" || rd == "unreleased" {
+		// Backward compat: old cache entries with EarlyAccess but no ReleaseDate
+		if entry.EarlyAccess {
+			return false
+		}
+		// Unknown release date — needs checking
+		return false
+	}
+	t, err := time.Parse("2006-01-02", rd)
+	if err != nil {
+		// Non-standard date string stored in cache — treat as known release
+		return true
+	}
+	return time.Since(t) > 6*30*24*time.Hour // ~6 months
 }
 
 type scanResult struct {
@@ -972,29 +997,31 @@ func (a *App) runWebAPIScan(ctx context.Context, webAPI *services.SteamWebAPI, g
 				// Transient error (rate limit, network, bad response) — skip cache so it retries next scan
 				slog.Debug("skipping cache for transient error", "appID", result.game.AppID, "error", errorMessage)
 			} else {
-				// Permanent error (Steam says "no stats for this game") — cache as 0/0
-				earlyAccess := webAPI.CheckEarlyAccess(result.game.AppID)
-				settings.SaveAchievementCountsEarlyAccess(result.game.AppID, 0, 0, earlyAccess)
+				// Permanent error (Steam says "no stats for this game") — cache as 0/0 with release info
+				info := webAPI.GetReleaseInfo(result.game.AppID)
+				settings.SaveAchievementCountsRelease(result.game.AppID, 0, 0, info.ReleaseDate)
 				wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
 					"appId":       result.game.AppID,
 					"achieved":    0,
 					"total":       0,
-					"earlyAccess": earlyAccess,
+					"earlyAccess": info.EarlyAccess,
+					"releaseDate": info.ReleaseDate,
 				})
-				if earlyAccess {
+				if info.EarlyAccess {
 					slog.Debug("early access game with no achievements", "appID", result.game.AppID, "name", result.game.Name)
 				}
 			}
 		} else if result.total == 0 {
-			earlyAccess := webAPI.CheckEarlyAccess(result.game.AppID)
-			settings.SaveAchievementCountsEarlyAccess(result.game.AppID, 0, 0, earlyAccess)
+			info := webAPI.GetReleaseInfo(result.game.AppID)
+			settings.SaveAchievementCountsRelease(result.game.AppID, 0, 0, info.ReleaseDate)
 			wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
 				"appId":       result.game.AppID,
 				"achieved":    0,
 				"total":       0,
-				"earlyAccess": earlyAccess,
+				"earlyAccess": info.EarlyAccess,
+				"releaseDate": info.ReleaseDate,
 			})
-			if earlyAccess {
+			if info.EarlyAccess {
 				slog.Debug("early access game with no achievements", "appID", result.game.AppID, "name", result.game.Name)
 			}
 		} else {
