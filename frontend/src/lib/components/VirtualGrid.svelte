@@ -45,15 +45,29 @@
     const offsetIntoWrapper = Math.max(0, -relativeTop);
 
     const rows = Math.ceil(items.length / columnCount);
-    startRow = Math.max(0, Math.floor(offsetIntoWrapper / rowHeight) - overscan);
-    endRow = Math.min(rows, Math.ceil((offsetIntoWrapper + containerRect.height) / rowHeight) + overscan);
+    const newStartRow = Math.max(0, Math.floor(offsetIntoWrapper / rowHeight) - overscan);
+    const newEndRow = Math.min(rows, Math.ceil((offsetIntoWrapper + containerRect.height) / rowHeight) + overscan);
+    if (newStartRow !== startRow || newEndRow !== endRow) {
+      startRow = newStartRow;
+      endRow = newEndRow;
+    }
+  }
+
+  let rafId = 0;
+
+  function onScroll() {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(recalculate);
   }
 
   // Scroll listener
   $effect(() => {
     if (!scrollContainer) return;
-    scrollContainer.addEventListener('scroll', recalculate, { passive: true });
-    return () => scrollContainer!.removeEventListener('scroll', recalculate);
+    scrollContainer.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      scrollContainer!.removeEventListener('scroll', onScroll);
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    };
   });
 
   // Viewport resize
@@ -76,9 +90,8 @@
 </script>
 
 {#if items.length > 0}
-  <div bind:this={wrapperEl} style="min-height: {totalHeight}px">
-    <div style="height: {spacerHeight}px"></div>
-    <div class={className} style={styleProp}>
+  <div bind:this={wrapperEl} style="height: {totalHeight}px; position: relative;">
+    <div class={className} style="position: absolute; top: 0; left: 0; right: 0; will-change: transform; transform: translateY({spacerHeight}px);{styleProp ? ` ${styleProp}` : ''}">
       {#each visibleItems as item (keyFn(item))}
         {@render children(item)}
       {/each}

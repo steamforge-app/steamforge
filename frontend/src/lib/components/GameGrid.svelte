@@ -52,7 +52,7 @@
     const imageHeight = (actualColumnWidth - CARD_BORDER) * IMAGE_ASPECT;
     const labelsHeight = $settings.showLabels ? LABELS_HEIGHT : 0;
     const cardHeight = imageHeight + PROGRESS_BAR_HEIGHT + labelsHeight + CARD_BORDER;
-    return cardHeight + GAP;
+    return Math.round(cardHeight + GAP);
   });
 
   function toggleInstalled() {
