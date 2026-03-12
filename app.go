@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -426,7 +427,14 @@ func (a *App) OpenDataDir() error {
 	if dir == "" {
 		return errors.New("data directory not set")
 	}
-	return exec.Command("explorer", dir).Start()
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("explorer", dir).Start()
+	case "darwin":
+		return exec.Command("open", dir).Start()
+	default:
+		return exec.Command("xdg-open", dir).Start()
+	}
 }
 
 // GetLogContent returns the contents of the current session's log file.
@@ -702,7 +710,13 @@ func (a *App) handleAccountChange(newSteamID uint64) {
 	var gameService *services.GameService
 	var achieveService *services.AchievementService
 	for attempt := range 10 {
-		time.Sleep(3 * time.Second)
+		select {
+		case <-time.After(3 * time.Second):
+		case <-a.ctx.Done():
+			slog.Warn("account switch reconnect cancelled during shutdown")
+			wailsRuntime.EventsEmit(a.ctx, "steam-disconnected", nil)
+			return
+		}
 		var err error
 		client, gameService, achieveService, err = a.initClient(0)
 		if err == nil {
@@ -776,50 +790,29 @@ func (a *App) runAchievementScan(ctx context.Context, gamesToScan []models.GameI
 	schemaResolved := 0
 	localResolved := 0
 	for _, game := range gamesToScan {
-		total, hasSchema := services.HasAchievementsFromSchema(game.AppID)
-		if !hasSchema {
-			// No schema — need web API to determine achievement count
+		result := resolveGameLocally(game, cached, localCounts)
+		if !result.resolved {
 			remaining = append(remaining, game)
 			continue
 		}
-		if total == 0 {
-			// Schema confirms no achievements — preserve existing release info from cache
-			if existing, ok := cached[game.AppID]; ok && existing.ReleaseDate != "" {
-				settings.SaveAchievementCountsRelease(game.AppID, 0, 0, existing.ReleaseDate)
-				schemaResolved++
-				wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
-					"appId":       game.AppID,
-					"achieved":    0,
-					"total":       0,
-					"earlyAccess": existing.EarlyAccess,
-					"releaseDate": existing.ReleaseDate,
-				})
-			} else {
-				// No release date cached — send to web API for release info
-				remaining = append(remaining, game)
-			}
-			continue
-		}
-		// Schema shows achievements exist — check local stats for achieved count
-		achieved, hasLocal := localCounts[game.AppID]
-		if hasLocal {
-			settings.SaveAchievementCounts(game.AppID, achieved, total)
+		if result.method == "local" {
 			localResolved++
-			wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
-				"appId":    game.AppID,
-				"achieved": achieved,
-				"total":    total,
-			})
 		} else {
-			// Schema has total but no local stats — cache as unknown achieved
-			settings.SaveAchievementCounts(game.AppID, -1, total)
 			schemaResolved++
-			wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
-				"appId":    game.AppID,
-				"achieved": -1,
-				"total":    total,
-			})
 		}
+		event := map[string]any{
+			"appId":    game.AppID,
+			"achieved": result.achieved,
+			"total":    result.total,
+		}
+		if result.releaseDate != "" {
+			settings.SaveAchievementCountsRelease(game.AppID, result.achieved, result.total, result.releaseDate)
+			event["earlyAccess"] = result.earlyAccess
+			event["releaseDate"] = result.releaseDate
+		} else {
+			settings.SaveAchievementCounts(game.AppID, result.achieved, result.total)
+		}
+		wailsRuntime.EventsEmit(a.ctx, "scan-counts", event)
 	}
 	slog.Info("local resolution done",
 		"schemaResolved", schemaResolved, "localResolved", localResolved,
@@ -835,6 +828,37 @@ func (a *App) runAchievementScan(ctx context.Context, gamesToScan []models.GameI
 
 	// No client or no games remaining
 	a.finalizeScan()
+}
+
+type localResolution struct {
+	resolved    bool
+	achieved    int
+	total       int
+	method      string // "schema" or "local"
+	earlyAccess bool
+	releaseDate string
+}
+
+// resolveGameLocally attempts to resolve achievement counts from schema files
+// and local stats without any network calls.
+func resolveGameLocally(game models.GameInfo, cached map[uint32]settings.AchievementCount, localCounts map[uint32]int) localResolution {
+	total, hasSchema := services.HasAchievementsFromSchema(game.AppID)
+	if !hasSchema {
+		return localResolution{}
+	}
+	if total == 0 {
+		if existing, ok := cached[game.AppID]; ok && existing.ReleaseDate != "" {
+			return localResolution{
+				resolved: true, achieved: 0, total: 0, method: "schema",
+				earlyAccess: existing.EarlyAccess, releaseDate: existing.ReleaseDate,
+			}
+		}
+		return localResolution{}
+	}
+	if achieved, hasLocal := localCounts[game.AppID]; hasLocal {
+		return localResolution{resolved: true, achieved: achieved, total: total, method: "local"}
+	}
+	return localResolution{resolved: true, achieved: -1, total: total, method: "schema"}
 }
 
 // isOldRelease returns true if the cached entry has a known release date older than 6 months.
@@ -854,7 +878,8 @@ func isOldRelease(entry settings.AchievementCount) bool {
 		// Non-standard date string stored in cache — treat as known release
 		return true
 	}
-	return time.Since(t) > 6*30*24*time.Hour // ~6 months
+	const oldReleaseThreshold = 183 * 24 * time.Hour // ~6 months
+	return time.Since(t) > oldReleaseThreshold
 }
 
 type scanResult struct {
@@ -969,73 +994,71 @@ func (a *App) runWebAPIScan(ctx context.Context, webAPI *services.SteamWebAPI, g
 			"name":    result.game.Name,
 		})
 
-		if result.err != nil {
-			errorMessage := result.err.Error()
-			slog.Debug("web api scan error", "appID", result.game.AppID, "error", errorMessage)
-
-			if strings.Contains(errorMessage, "private") || strings.Contains(errorMessage, "friendsonly") {
-				if privateFlag.CompareAndSwap(false, true) {
-					slog.Info("profile is private, remaining games will use schema-only")
-					wailsRuntime.EventsEmit(a.ctx, "profile-visibility", map[string]any{
-						"public": false,
-					})
-				}
-			}
-
-			if privateFlag.Load() {
-				// Private profile — use schema-only
-				total, hasSchema := services.HasAchievementsFromSchema(result.game.AppID)
-				if hasSchema && total > 0 {
-					settings.SaveAchievementCounts(result.game.AppID, -1, total)
-					wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
-						"appId":    result.game.AppID,
-						"achieved": -1,
-						"total":    total,
-					})
-				}
-			} else if isTransientError(errorMessage) {
-				// Transient error (rate limit, network, bad response) — skip cache so it retries next scan
-				slog.Debug("skipping cache for transient error", "appID", result.game.AppID, "error", errorMessage)
-			} else {
-				// Permanent error (Steam says "no stats for this game") — cache as 0/0 with release info
-				info := webAPI.GetReleaseInfo(result.game.AppID)
-				settings.SaveAchievementCountsRelease(result.game.AppID, 0, 0, info.ReleaseDate)
-				wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
-					"appId":       result.game.AppID,
-					"achieved":    0,
-					"total":       0,
-					"earlyAccess": info.EarlyAccess,
-					"releaseDate": info.ReleaseDate,
-				})
-				if info.EarlyAccess {
-					slog.Debug("early access game with no achievements", "appID", result.game.AppID, "name", result.game.Name)
-				}
-			}
-		} else if result.total == 0 {
-			info := webAPI.GetReleaseInfo(result.game.AppID)
-			settings.SaveAchievementCountsRelease(result.game.AppID, 0, 0, info.ReleaseDate)
-			wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
-				"appId":       result.game.AppID,
-				"achieved":    0,
-				"total":       0,
-				"earlyAccess": info.EarlyAccess,
-				"releaseDate": info.ReleaseDate,
-			})
-			if info.EarlyAccess {
-				slog.Debug("early access game with no achievements", "appID", result.game.AppID, "name", result.game.Name)
-			}
-		} else {
-			settings.SaveAchievementCounts(result.game.AppID, result.achieved, result.total)
-			wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
-				"appId":    result.game.AppID,
-				"achieved": result.achieved,
-				"total":    result.total,
-			})
-		}
+		a.handleWebScanResult(result, webAPI, &privateFlag)
 	}
 
 	slog.Info("web api scan complete", "scanned", scanned, "total", totalGames)
 	a.finalizeScan()
+}
+
+func (a *App) handleWebScanResult(result scanResult, webAPI *services.SteamWebAPI, privateFlag *atomic.Bool) {
+	if result.err != nil {
+		errorMessage := result.err.Error()
+		slog.Debug("web api scan error", "appID", result.game.AppID, "error", errorMessage)
+
+		if strings.Contains(errorMessage, "private") || strings.Contains(errorMessage, "friendsonly") {
+			if privateFlag.CompareAndSwap(false, true) {
+				slog.Info("profile is private, remaining games will use schema-only")
+				wailsRuntime.EventsEmit(a.ctx, "profile-visibility", map[string]any{
+					"public": false,
+				})
+			}
+		}
+
+		if privateFlag.Load() {
+			total, hasSchema := services.HasAchievementsFromSchema(result.game.AppID)
+			if hasSchema && total > 0 {
+				settings.SaveAchievementCounts(result.game.AppID, -1, total)
+				wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
+					"appId":    result.game.AppID,
+					"achieved": -1,
+					"total":    total,
+				})
+			}
+		} else if isTransientError(errorMessage) {
+			slog.Debug("skipping cache for transient error", "appID", result.game.AppID, "error", errorMessage)
+		} else {
+			a.emitZeroAchievements(result.game, webAPI)
+		}
+		return
+	}
+
+	if result.total == 0 {
+		a.emitZeroAchievements(result.game, webAPI)
+		return
+	}
+
+	settings.SaveAchievementCounts(result.game.AppID, result.achieved, result.total)
+	wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
+		"appId":    result.game.AppID,
+		"achieved": result.achieved,
+		"total":    result.total,
+	})
+}
+
+func (a *App) emitZeroAchievements(game models.GameInfo, webAPI *services.SteamWebAPI) {
+	info := webAPI.GetReleaseInfo(game.AppID)
+	settings.SaveAchievementCountsRelease(game.AppID, 0, 0, info.ReleaseDate)
+	wailsRuntime.EventsEmit(a.ctx, "scan-counts", map[string]any{
+		"appId":       game.AppID,
+		"achieved":    0,
+		"total":       0,
+		"earlyAccess": info.EarlyAccess,
+		"releaseDate": info.ReleaseDate,
+	})
+	if info.EarlyAccess {
+		slog.Debug("early access game with no achievements", "appID", game.AppID, "name", game.Name)
+	}
 }
 
 func (a *App) finalizeScan() {

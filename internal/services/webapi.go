@@ -163,11 +163,10 @@ func (w *SteamWebAPI) GetFullAchievements(appID uint32) ([]models.Achievement, e
 			ach.Percent = p
 			matched++
 			if i < 3 {
-				slog.Info("percent match sample", "apiName", a.APIName, "percent", p)
+				slog.Debug("percent match sample", "apiName", a.APIName, "percent", p)
 			}
 		} else if i < 3 {
-			// Log first few misses to help debug key mismatches
-			slog.Warn("percent miss sample", "apiName", a.APIName)
+			slog.Debug("percent miss sample", "apiName", a.APIName)
 		}
 		achievements = append(achievements, ach)
 	}
@@ -203,7 +202,11 @@ func (w *SteamWebAPI) GetGlobalPercents(appID uint32) map[string]float32 {
 	for attempt := 1; attempt <= 2; attempt++ {
 		if attempt > 1 {
 			slog.Info("retrying global percents", "appID", appID, "attempt", attempt)
-			time.Sleep(2 * time.Second)
+			select {
+			case <-time.After(2 * time.Second):
+			case <-w.ctx.Done():
+				return nil
+			}
 		}
 
 		percents := w.fetchGlobalPercents(appID)

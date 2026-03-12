@@ -81,6 +81,12 @@ func (s *AchievementService) LoadAchievements(appID uint32) ([]models.Achievemen
 		s.statsLoaded = false
 		s.mu.Unlock()
 
+		// Capture the ready channel BEFORE registering the callback to avoid
+		// a race where the callback fires and nils statsReady before we read it.
+		s.mu.RLock()
+		ready := s.statsReady
+		s.mu.RUnlock()
+
 		s.client.Callbacks().RegisterOne(steam.CallbackUserStatsReceived, func(paramPtr unsafe.Pointer, paramSize int32) {
 			if paramSize >= int32(unsafe.Sizeof(steam.UserStatsReceived{})) {
 				result := (*steam.UserStatsReceived)(paramPtr)
@@ -107,10 +113,6 @@ func (s *AchievementService) LoadAchievements(appID uint32) ([]models.Achievemen
 
 		callHandle := userStats.RequestUserStats(s.client.SteamID())
 		slog.Debug("RequestUserStats called", "appID", appID, "steamID", s.client.SteamID(), "callHandle", callHandle)
-
-		s.mu.RLock()
-		ready := s.statsReady
-		s.mu.RUnlock()
 
 		if ready != nil {
 			select {
@@ -202,16 +204,7 @@ func (s *AchievementService) loadFromSchema(appID uint32, userStats *steam.IStea
 			ach.IconGrayURL = iconBaseURL + def.IconLocked
 		}
 
-		if ach.IconURL == "" {
-			if iconName := userStats.GetAchievementDisplayAttributeCS(csID, csKeyIcon); iconName != "" {
-				ach.IconURL = iconBaseURL + iconName
-			}
-		}
-		if ach.IconGrayURL == "" {
-			if iconGray := userStats.GetAchievementDisplayAttributeCS(csID, csKeyIconGray); iconGray != "" {
-				ach.IconGrayURL = iconBaseURL + iconGray
-			}
-		}
+		resolveIconsFromSDK(&ach, userStats, csID, csKeyIcon, csKeyIconGray, iconBaseURL)
 
 		percent, ok := userStats.GetAchievementAchievedPercentCS(csID)
 		if ok {
@@ -287,16 +280,7 @@ func (s *AchievementService) loadFromAPI(appID uint32, userStats *steam.ISteamUs
 			}
 		}
 
-		if ach.IconURL == "" {
-			if iconName := userStats.GetAchievementDisplayAttributeCS(csID, csKeyIcon); iconName != "" {
-				ach.IconURL = iconBaseURL + iconName
-			}
-		}
-		if ach.IconGrayURL == "" {
-			if iconGray := userStats.GetAchievementDisplayAttributeCS(csID, csKeyIconGray); iconGray != "" {
-				ach.IconGrayURL = iconBaseURL + iconGray
-			}
-		}
+		resolveIconsFromSDK(&ach, userStats, csID, csKeyIcon, csKeyIconGray, iconBaseURL)
 
 		percent, ok := userStats.GetAchievementAchievedPercentCS(csID)
 		if ok {
@@ -308,6 +292,20 @@ func (s *AchievementService) loadFromAPI(appID uint32, userStats *steam.ISteamUs
 	}
 
 	return achievements
+}
+
+// resolveIconsFromSDK fills in missing icon URLs from the SDK display attributes.
+func resolveIconsFromSDK(ach *models.Achievement, userStats *steam.ISteamUserStats, csID, csKeyIcon, csKeyIconGray *steam.CString, iconBaseURL string) {
+	if ach.IconURL == "" {
+		if iconName := userStats.GetAchievementDisplayAttributeCS(csID, csKeyIcon); iconName != "" {
+			ach.IconURL = iconBaseURL + iconName
+		}
+	}
+	if ach.IconGrayURL == "" {
+		if iconGray := userStats.GetAchievementDisplayAttributeCS(csID, csKeyIconGray); iconGray != "" {
+			ach.IconGrayURL = iconBaseURL + iconGray
+		}
+	}
 }
 
 // HasAchievementsFromSchema checks the local schema file for achievement count

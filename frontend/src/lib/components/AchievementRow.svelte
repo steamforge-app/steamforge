@@ -53,8 +53,9 @@
   );
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+  role="row"
+  tabindex="0"
   onclick={handleRowClick}
   onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onselect(achievement.id, e.shiftKey); } }}
   class="flex items-center gap-2 pr-4 py-3 pl-3 transition-all duration-150 border-b border-steam-border/50 cursor-pointer

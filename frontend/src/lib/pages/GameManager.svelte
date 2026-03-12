@@ -287,9 +287,6 @@
           addToast(`Failed to load achievements: ${e.message || e}`, 'error');
         }
       }
-    } catch (e: any) {
-      achievements.set([]);
-      addToast(`Failed to load achievements: ${e.message || e}`, 'error');
     } finally {
       achievementsLoading.set(false);
       prefetchAdjacentGames();

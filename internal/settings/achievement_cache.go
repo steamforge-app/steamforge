@@ -114,9 +114,6 @@ func ClearNonPerfectedCache() {
 		}
 	}
 
-	if cacheFlushTimer != nil {
-		cacheFlushTimer.Stop()
-	}
 	cacheFlushTimer = time.AfterFunc(cacheFlushDelay, flushAchievementCache)
 }
 

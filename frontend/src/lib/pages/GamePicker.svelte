@@ -23,6 +23,20 @@
     }
   }
 
+  async function handleSuccessfulConnection(id: number) {
+    stopRetry();
+    isConnected.set(true);
+    steamId.set(id.toString());
+    GetPersonaName().then(name => personaName.set(name)).catch(() => {});
+    await loadSettings();
+    await loadGames();
+    try {
+      const counts = await GetAchievementCounts();
+      achievementCounts.set(counts || {});
+    } catch { /* cache not critical */ }
+    startScan();
+  }
+
   function startRetry() {
     stopRetry();
     retryCount = 0;
@@ -30,19 +44,9 @@
       retryCount++;
       try {
         const id = await ConnectSteam();
-        stopRetry();
-        isConnected.set(true);
-        steamId.set(id.toString());
-        GetPersonaName().then(name => personaName.set(name)).catch(() => {});
         isLoading.set(false);
         loadingMessage.set('');
-        await loadSettings();
-        await loadGames();
-        try {
-          const counts = await GetAchievementCounts();
-          achievementCounts.set(counts || {});
-        } catch { /* cache not critical */ }
-        startScan();
+        await handleSuccessfulConnection(id);
       } catch {
         // Still not available, keep polling
       }
@@ -112,18 +116,7 @@
     loadingMessage.set('Connecting to Steam...');
     try {
       const id = await ConnectSteam();
-      stopRetry();
-      isConnected.set(true);
-      steamId.set(id.toString());
-      GetPersonaName().then(name => personaName.set(name)).catch(() => {});
-      // Reload settings now that per-user config is available
-      await loadSettings();
-      await loadGames();
-      try {
-        const counts = await GetAchievementCounts();
-        achievementCounts.set(counts || {});
-      } catch { /* cache not critical */ }
-      startScan();
+      await handleSuccessfulConnection(id);
     } catch {
       startRetry();
     } finally {

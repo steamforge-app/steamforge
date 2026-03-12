@@ -13,6 +13,10 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+// steamIDBase is the minimum valid Steam ID (64-bit). IDs above this threshold
+// are full Steam community IDs (e.g. 76561198000000000).
+const steamIDBase uint64 = 76561197960265728
+
 // AccountWatcher monitors loginusers.vdf for Steam account changes.
 // When the active user (MostRecent "1") changes, it invokes the callback
 // with the new Steam ID.
@@ -138,7 +142,7 @@ func ParseActiveUserID(vdfPath string) (uint64, error) {
 		// Match a quoted string that looks like a Steam ID (17-digit number)
 		if strings.HasPrefix(line, "\"") && !strings.Contains(line, "\t") {
 			trimmed := strings.Trim(line, "\"")
-			if id, err := strconv.ParseUint(trimmed, 10, 64); err == nil && id > 76561197960265728 {
+			if id, err := strconv.ParseUint(trimmed, 10, 64); err == nil && id > steamIDBase {
 				currentKey = id
 			}
 			continue

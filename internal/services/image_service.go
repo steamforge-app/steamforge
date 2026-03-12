@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
-	"sync"
 
 	"steamforge/internal/cache"
 )
@@ -15,7 +14,6 @@ import (
 type ImageService struct {
 	cache *cache.ImageCache
 	ctx   context.Context
-	mu    sync.Mutex
 }
 
 func NewImageService(cacheDir string) (*ImageService, error) {
@@ -53,9 +51,6 @@ func (s *ImageService) GetImageBase64(rawURL string) (string, error) {
 		slog.Warn("image URL rejected", "url", rawURL, "error", err)
 		return "", fmt.Errorf("image URL not allowed: %w", err)
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	path, err := s.cache.Download(rawURL)
 	if err != nil {
