@@ -1,14 +1,29 @@
 # SteamForge
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/steamforge-app/steamforge)](https://github.com/steamforge-app/steamforge/releases/latest)
+[![GitHub downloads](https://img.shields.io/github/downloads/steamforge-app/steamforge/total)](https://github.com/steamforge-app/steamforge/releases)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-brightgreen)
+![Go](https://img.shields.io/badge/Go-1.23-00ADD8?logo=go&logoColor=white)
+![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte&logoColor=white)
 
-A desktop Steam achievement manager built with Go, Svelte 5, and Wails. Browse your game library, view achievement rarity, and unlock or lock achievements with a clean Steam-themed UI.
+A modern, cross-platform Steam achievement manager. Browse your library, view global rarity stats, and unlock or lock achievements — all from a clean, Steam-themed desktop app. Native on both **Windows** and **Linux/Steam Deck**, with no .NET or Proton required.
 
 > **Disclaimer:** SteamForge modifies achievement data through the Steamworks SDK. Use at your own risk — modifying achievements may violate Steam's terms of service. This project is provided for educational and personal use.
 
-## Download
+## Why SteamForge?
 
-![Latest Release](https://img.shields.io/github/v/release/steamforge-app/steamforge)
+| | SteamForge | SAM |
+|---|---|---|
+| **Linux / Steam Deck** | Native binary | Requires .NET / Proton workarounds |
+| **UI** | Modern Steam-themed (Svelte 5) | Legacy WinForms |
+| **Global rarity stats** | Built-in | No |
+| **Library browsing** | Grid/list with filters & sorting | Flat list |
+| **Dependencies** | Single binary, no runtime | .NET Framework required |
+| **Bulk operations** | Select & modify multiple achievements | One at a time |
+| **Keyboard navigation** | Full keyboard support | Mouse only |
+
+## Download
 
 | Platform | Link |
 | -------- | ---- |
