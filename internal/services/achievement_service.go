@@ -426,7 +426,32 @@ func (s *AchievementService) StoreStats() (bool, error) {
 	if userStats == nil {
 		return false, errors.New("UserStats not available")
 	}
+
+	stored := make(chan bool, 1)
+	s.client.Callbacks().RegisterOne(steam.CallbackUserStatsStored, func(paramPtr unsafe.Pointer, paramSize int32) {
+		if paramSize >= int32(unsafe.Sizeof(steam.UserStatsStored{})) {
+			result := (*steam.UserStatsStored)(paramPtr)
+			stored <- result.Result == steam.ResultOK
+		} else {
+			stored <- false
+		}
+	})
+
 	ok := userStats.StoreStats()
-	slog.Info("store stats", "ok", ok)
-	return ok, nil
+	slog.Info("store stats request sent", "ok", ok)
+	if !ok {
+		return false, nil
+	}
+
+	select {
+	case success := <-stored:
+		slog.Info("store stats confirmed", "success", success)
+		if !success {
+			return false, errors.New("Steam rejected the stats update")
+		}
+		return true, nil
+	case <-time.After(5 * time.Second):
+		slog.Warn("store stats callback timed out — save may still succeed")
+		return true, nil
+	}
 }

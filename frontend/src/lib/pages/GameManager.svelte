@@ -351,9 +351,11 @@
       if (ok) {
         snapshotState();
         syncAchievementCounts();
+      } else {
+        addToast('Auto-save failed — changes may not have been saved', 'error');
       }
     } catch (e: any) {
-      addToast(`Auto-store failed: ${e.message || e}`, 'error');
+      addToast(`Auto-save failed: ${e.message || e}`, 'error');
     }
   }
 
@@ -361,10 +363,10 @@
     if ($settings.autoStore) {
       if (!await ensureConnected()) return;
       try {
-        if (achieved) {
-          await SetAchievement(id);
-        } else {
-          await ClearAchievement(id);
+        const ok = achieved ? await SetAchievement(id) : await ClearAchievement(id);
+        if (!ok) {
+          addToast(`Failed to ${achieved ? 'unlock' : 'lock'} achievement — Steam SDK rejected the change`, 'error');
+          return;
         }
         achievements.update(list => list.map(item =>
           item.id === id ? { ...item, isAchieved: achieved, unlockTime: achieved ? Math.floor(Date.now() / 1000) : 0 } : item
@@ -435,11 +437,17 @@
   async function handleUnlockSelected() {
     if ($settings.autoStore) {
       if (!await ensureConnected()) return;
+      let failed = 0;
       for (const id of selectedIds) {
         const match = $achievements.find(achievement => achievement.id === id);
         if (match && !match.isAchieved) {
-          await SetAchievement(id);
+          const ok = await SetAchievement(id);
+          if (!ok) failed++;
         }
+      }
+      if (failed > 0) {
+        addToast(`${failed} achievement(s) failed to unlock`, 'error');
+        return;
       }
     }
     achievements.update(list => list.map(item =>
@@ -453,11 +461,17 @@
   async function handleLockSelected() {
     if ($settings.autoStore) {
       if (!await ensureConnected()) return;
+      let failed = 0;
       for (const id of selectedIds) {
         const match = $achievements.find(achievement => achievement.id === id);
         if (match && match.isAchieved) {
-          await ClearAchievement(id);
+          const ok = await ClearAchievement(id);
+          if (!ok) failed++;
         }
+      }
+      if (failed > 0) {
+        addToast(`${failed} achievement(s) failed to lock`, 'error');
+        return;
       }
     }
     achievements.update(list => list.map(item =>
