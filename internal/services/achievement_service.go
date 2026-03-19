@@ -12,6 +12,7 @@ import (
 
 	"steamforge/internal/models"
 	"steamforge/internal/schema"
+	"steamforge/internal/settings"
 	"steamforge/internal/steam"
 )
 
@@ -321,7 +322,8 @@ func HasAchievementsFromSchema(appID uint32) (int, bool) {
 
 // MergeSchemaPermissions loads the local schema for a game and applies the
 // permission field to community-loaded achievements. The community profile
-// endpoint doesn't include permission data.
+// endpoint doesn't include permission data. Also persists the protected
+// flag to the achievement cache so the game picker can display it.
 func MergeSchemaPermissions(appID uint32, achievements []models.Achievement) {
 	gameSchema, err := schema.Load(appID, "english")
 	if err != nil {
@@ -340,6 +342,12 @@ func MergeSchemaPermissions(appID uint32, achievements []models.Achievement) {
 		if p, ok := perms[achievements[i].ID]; ok {
 			achievements[i].Permission = p
 		}
+	}
+
+	cached := settings.LoadAchievementCache()
+	if entry, ok := cached[appID]; ok && !entry.Protected {
+		entry.Protected = true
+		settings.SaveAchievementEntry(appID, entry)
 	}
 }
 

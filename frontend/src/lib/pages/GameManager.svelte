@@ -214,11 +214,17 @@
   function syncAchievementCounts() {
     const achieved = $achievements.filter(a => a.isAchieved).length;
     const total = $achievements.length;
+    const isProtected = $achievements.some(a => a.permission > 0);
     achievementCounts.update(counts => {
       const existing = counts[String($selectedAppId)];
       return {
         ...counts,
-        [String($selectedAppId)]: { achieved, total, earlyAccess: existing?.earlyAccess }
+        [String($selectedAppId)]: {
+          achieved,
+          total,
+          earlyAccess: existing?.earlyAccess,
+          protected: isProtected || existing?.protected,
+        }
       };
     });
   }

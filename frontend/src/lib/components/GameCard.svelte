@@ -34,6 +34,7 @@
   let completionPercent = $derived(hasAchievementData ? Math.round((counts!.achieved / counts!.total) * 100) : -1);
   let isFullyCompleted = $derived(hasAchievementData && counts!.achieved === counts!.total);
   let isEarlyAccess = $derived(counts?.earlyAccess === true);
+  let isProtected = $derived(counts?.protected === true);
 
   function handleClick() {
     navigateToManager(game.appId, game.name, game.installed);
@@ -215,7 +216,7 @@
     <div class="h-0 flex items-center justify-center relative z-10">
       {#if hasAchievementData}
         <span class="text-xs font-bold text-white px-2 py-0.5 rounded-full {isFullyCompleted ? 'bg-amber-500/90' : 'bg-black/60'}" style="text-shadow: 0 1px 2px rgba(0,0,0,0.8); backdrop-filter: blur(4px)">
-          {counts.achieved}/{counts.total}
+          {#if isProtected}<svg class="w-3 h-3 inline-block -mt-px mr-0.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>{/if}{counts.achieved}/{counts.total}
         </span>
       {:else if counts && counts.total === 0}
         <span class="text-[11px] px-2 py-0.5 rounded-full {isEarlyAccess ? 'text-blue-300 bg-blue-500/30' : 'text-steam-text-dim bg-black/50'}" style="text-shadow: 0 1px 2px rgba(0,0,0,0.8)">{isEarlyAccess ? 'Early Access' : 'No achievements'}</span>
