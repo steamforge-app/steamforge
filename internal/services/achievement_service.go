@@ -333,7 +333,8 @@ func (s *AchievementService) SetAchievement(name string) (bool, error) {
 	if userStats == nil {
 		return false, errors.New("UserStats not available")
 	}
-	ok := userStats.SetAchievement(name)
+
+	ok := s.retrySDKCall(func() bool { return userStats.SetAchievement(name) })
 	slog.Info("set achievement", "name", name, "ok", ok)
 
 	if ok {
@@ -358,7 +359,8 @@ func (s *AchievementService) ClearAchievement(name string) (bool, error) {
 	if userStats == nil {
 		return false, errors.New("UserStats not available")
 	}
-	ok := userStats.ClearAchievement(name)
+
+	ok := s.retrySDKCall(func() bool { return userStats.ClearAchievement(name) })
 	slog.Info("clear achievement", "name", name, "ok", ok)
 
 	if ok {
@@ -374,6 +376,19 @@ func (s *AchievementService) ClearAchievement(name string) (bool, error) {
 	}
 
 	return ok, nil
+}
+
+// retrySDKCall retries an SDK operation that may fail transiently right after
+// connecting to a game, giving the Steam client time to fully register the session.
+func (s *AchievementService) retrySDKCall(call func() bool) bool {
+	for attempt := range 3 {
+		if call() {
+			return true
+		}
+		slog.Debug("SDK call failed, retrying", "attempt", attempt+1)
+		time.Sleep(100 * time.Millisecond)
+	}
+	return false
 }
 
 func (s *AchievementService) SetAllAchievements() (int, error) {

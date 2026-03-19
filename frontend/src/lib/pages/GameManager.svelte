@@ -365,7 +365,7 @@
       try {
         const ok = achieved ? await SetAchievement(id) : await ClearAchievement(id);
         if (!ok) {
-          addToast(`Failed to ${achieved ? 'unlock' : 'lock'} achievement — Steam SDK rejected the change`, 'error');
+          addToast(`Failed to ${achieved ? 'unlock' : 'lock'} achievement`, 'error');
           return;
         }
         achievements.update(list => list.map(item =>
