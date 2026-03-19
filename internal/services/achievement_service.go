@@ -400,11 +400,12 @@ func (s *AchievementService) SetAllAchievements() (int, error) {
 	count := 0
 	s.mu.Lock()
 	for i := range s.achievements {
-		if !s.achievements[i].IsAchieved {
-			if userStats.SetAchievement(s.achievements[i].ID) {
-				s.achievements[i].IsAchieved = true
-				count++
-			}
+		if s.achievements[i].Permission > 0 || s.achievements[i].IsAchieved {
+			continue
+		}
+		if userStats.SetAchievement(s.achievements[i].ID) {
+			s.achievements[i].IsAchieved = true
+			count++
 		}
 	}
 	s.mu.Unlock()
@@ -422,12 +423,13 @@ func (s *AchievementService) ClearAllAchievements() (int, error) {
 	count := 0
 	s.mu.Lock()
 	for i := range s.achievements {
-		if s.achievements[i].IsAchieved {
-			if userStats.ClearAchievement(s.achievements[i].ID) {
-				s.achievements[i].IsAchieved = false
-				s.achievements[i].UnlockTime = 0
-				count++
-			}
+		if s.achievements[i].Permission > 0 || !s.achievements[i].IsAchieved {
+			continue
+		}
+		if userStats.ClearAchievement(s.achievements[i].ID) {
+			s.achievements[i].IsAchieved = false
+			s.achievements[i].UnlockTime = 0
+			count++
 		}
 	}
 	s.mu.Unlock()

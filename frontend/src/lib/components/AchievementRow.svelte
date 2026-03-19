@@ -15,9 +15,11 @@
   let { achievement, ontoggle, selected, onselect, allowLock, showUnlockDates, originalAchieved }: Props = $props();
   let iconLoadFailed = $state(false);
 
+  let isProtected = $derived(achievement.permission > 0);
+
   // Block locking when allowLock is false, UNLESS this is a pending unsaved change (originally locked, now unlocked)
   let isToggleDisabled = $derived(
-    achievement.isAchieved && !allowLock && originalAchieved !== false
+    isProtected || (achievement.isAchieved && !allowLock && originalAchieved !== false)
   );
 
   function handleToggle(e: Event) {
@@ -97,6 +99,9 @@
       <span class="text-sm font-medium text-steam-text truncate">
         {achievement.name || achievement.id}
       </span>
+      {#if isProtected}
+        <span class="text-xs text-amber-400/80 bg-amber-400/10 px-1.5 py-0.5 rounded" title="Server-side protected — can only be earned through gameplay">protected</span>
+      {/if}
       {#if achievement.isHidden}
         <span class="text-xs text-steam-text-dim bg-steam-input px-1.5 py-0.5 rounded">hidden</span>
       {/if}

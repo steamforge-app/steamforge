@@ -435,10 +435,16 @@
   }
 
   async function handleUnlockSelected() {
+    const editable = [...selectedIds].filter(id => {
+      const match = $achievements.find(a => a.id === id);
+      return match && !match.permission;
+    });
+    const skipped = selectedIds.size - editable.length;
+
     if ($settings.autoStore) {
       if (!await ensureConnected()) return;
       let failed = 0;
-      for (const id of selectedIds) {
+      for (const id of editable) {
         const match = $achievements.find(achievement => achievement.id === id);
         if (match && !match.isAchieved) {
           const ok = await SetAchievement(id);
@@ -450,19 +456,27 @@
         return;
       }
     }
+    const editableSet = new Set(editable);
     achievements.update(list => list.map(item =>
-      selectedIds.has(item.id) ? { ...item, isAchieved: true } : item
+      editableSet.has(item.id) ? { ...item, isAchieved: true } : item
     ));
-    addToast(`Unlocked ${selectedIds.size} achievements`, 'success');
+    const label = skipped > 0 ? `Unlocked ${editable.length} achievements (${skipped} protected, skipped)` : `Unlocked ${editable.length} achievements`;
+    addToast(label, 'success');
     selectedIds = new Set();
     if ($settings.autoStore) await autoStoreIfEnabled();
   }
 
   async function handleLockSelected() {
+    const editable = [...selectedIds].filter(id => {
+      const match = $achievements.find(a => a.id === id);
+      return match && !match.permission;
+    });
+    const skipped = selectedIds.size - editable.length;
+
     if ($settings.autoStore) {
       if (!await ensureConnected()) return;
       let failed = 0;
-      for (const id of selectedIds) {
+      for (const id of editable) {
         const match = $achievements.find(achievement => achievement.id === id);
         if (match && match.isAchieved) {
           const ok = await ClearAchievement(id);
@@ -474,34 +488,38 @@
         return;
       }
     }
+    const editableSet = new Set(editable);
     achievements.update(list => list.map(item =>
-      selectedIds.has(item.id) ? { ...item, isAchieved: false, unlockTime: 0 } : item
+      editableSet.has(item.id) ? { ...item, isAchieved: false, unlockTime: 0 } : item
     ));
-    addToast(`Locked ${selectedIds.size} achievements`, 'success');
+    const label = skipped > 0 ? `Locked ${editable.length} achievements (${skipped} protected, skipped)` : `Locked ${editable.length} achievements`;
+    addToast(label, 'success');
     selectedIds = new Set();
     if ($settings.autoStore) await autoStoreIfEnabled();
   }
 
   function handleLockAll() {
+    const protectedCount = $achievements.filter(a => a.permission > 0).length;
+    const protectedNote = protectedCount > 0 ? ` ${protectedCount} protected achievement(s) will be skipped.` : '';
     const autoSaveMessage = $settings.autoStore ? '' : ' Changes will not be saved until you click "Save".';
     confirmDialog = {
       title: 'Lock All Achievements',
-      message: `This will lock all achievements.${autoSaveMessage}`,
+      message: `This will lock all editable achievements.${protectedNote}${autoSaveMessage}`,
       action: async () => {
         confirmDialog = null;
         if ($settings.autoStore) {
           if (!await ensureConnected()) return;
           try {
             const count = await ClearAllAchievements();
-            achievements.update(list => list.map(item => ({ ...item, isAchieved: false, unlockTime: 0 })));
+            achievements.update(list => list.map(item => item.permission > 0 ? item : { ...item, isAchieved: false, unlockTime: 0 }));
             addToast(`Locked ${count} achievements`, 'success');
             await autoStoreIfEnabled();
           } catch (e: any) {
             addToast(`Failed: ${e.message || e}`, 'error');
           }
         } else {
-          const count = $achievements.filter(a => a.isAchieved).length;
-          achievements.update(list => list.map(item => ({ ...item, isAchieved: false, unlockTime: 0 })));
+          const count = $achievements.filter(a => a.isAchieved && !a.permission).length;
+          achievements.update(list => list.map(item => item.permission > 0 ? item : { ...item, isAchieved: false, unlockTime: 0 }));
           addToast(`Locked ${count} achievements`, 'success');
         }
       }
