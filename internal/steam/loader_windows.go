@@ -7,13 +7,12 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
-const loadWithAlteredSearchPath = 0x00000008
-
 type windowsLibrary struct {
-	handle syscall.Handle
+	handle windows.Handle
 }
 
 // OpenLibrary loads a DLL on Windows using LoadLibraryEx with
@@ -25,12 +24,7 @@ func OpenLibrary(path string) (Library, error) {
 		return nil, fmt.Errorf("resolve absolute path %s: %w", path, err)
 	}
 
-	pathPtr, err := syscall.UTF16PtrFromString(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("utf16 path: %w", err)
-	}
-
-	handle, err := syscall.LoadLibraryEx(pathPtr, 0, loadWithAlteredSearchPath)
+	handle, err := windows.LoadLibraryEx(absPath, 0, windows.LOAD_WITH_ALTERED_SEARCH_PATH)
 	if err != nil {
 		return nil, fmt.Errorf("LoadLibraryEx %s: %w", absPath, err)
 	}
@@ -38,7 +32,7 @@ func OpenLibrary(path string) (Library, error) {
 }
 
 func (l *windowsLibrary) FindProc(name string) (uintptr, error) {
-	proc, err := syscall.GetProcAddress(l.handle, name)
+	proc, err := syscall.GetProcAddress(syscall.Handle(l.handle), name)
 	if err != nil {
 		return 0, fmt.Errorf("GetProcAddress %s: %w", name, err)
 	}
@@ -46,7 +40,7 @@ func (l *windowsLibrary) FindProc(name string) (uintptr, error) {
 }
 
 func (l *windowsLibrary) Close() error {
-	return syscall.FreeLibrary(l.handle)
+	return windows.FreeLibrary(l.handle)
 }
 
 // SteamClientLibraryPath returns the path to steamclient64.dll on Windows.
