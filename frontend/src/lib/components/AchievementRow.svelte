@@ -99,9 +99,6 @@
       <span class="text-sm font-medium text-steam-text truncate">
         {achievement.name || achievement.id}
       </span>
-      {#if isProtected}
-        <span class="text-xs text-amber-400/80 bg-amber-400/10 px-1.5 py-0.5 rounded" title="Server-side protected — can only be earned through gameplay">protected</span>
-      {/if}
       {#if achievement.isHidden}
         <span class="text-xs text-steam-text-dim bg-steam-input px-1.5 py-0.5 rounded">hidden</span>
       {/if}

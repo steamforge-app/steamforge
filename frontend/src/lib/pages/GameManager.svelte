@@ -63,6 +63,7 @@
 
   let achievedCount = $derived($achievements.filter(achievement => achievement.isAchieved).length);
   let totalCount = $derived($achievements.length);
+  let hasProtectedAchievements = $derived($achievements.some(a => a.permission > 0));
   let progressPercent = $derived(totalCount > 0 ? Math.round((achievedCount / totalCount) * 100) : 0);
   let pendingChanges = $derived.by(() => {
     if (originalState.size === 0) return 0;
@@ -908,6 +909,14 @@
       visibleCount={visibleAchievementIds.length}
       {totalCount}
     />
+    {#if hasProtectedAchievements}
+      <div class="px-4 py-2 bg-amber-400/5 border-b border-amber-400/20 flex items-center gap-2 shrink-0">
+        <svg class="w-4 h-4 text-amber-400/70 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+        <span class="text-xs text-amber-400/70">This game uses server-side achievement protection. Achievements cannot be edited.</span>
+      </div>
+    {/if}
     <div bind:this={scrollElement} onscroll={handleContentScroll} class="flex-1 min-h-0 overflow-y-auto">
       <AchievementList
         ontoggle={handleToggleAchievement}
