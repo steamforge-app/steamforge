@@ -319,6 +319,30 @@ func HasAchievementsFromSchema(appID uint32) (int, bool) {
 	return len(gameSchema.Achievements), true
 }
 
+// MergeSchemaPermissions loads the local schema for a game and applies the
+// permission field to community-loaded achievements. The community profile
+// endpoint doesn't include permission data.
+func MergeSchemaPermissions(appID uint32, achievements []models.Achievement) {
+	gameSchema, err := schema.Load(appID, "english")
+	if err != nil {
+		return
+	}
+	perms := make(map[string]int, len(gameSchema.Achievements))
+	for _, def := range gameSchema.Achievements {
+		if def.Permission > 0 {
+			perms[def.ID] = def.Permission
+		}
+	}
+	if len(perms) == 0 {
+		return
+	}
+	for i := range achievements {
+		if p, ok := perms[achievements[i].ID]; ok {
+			achievements[i].Permission = p
+		}
+	}
+}
+
 func (s *AchievementService) GetAchievements() []models.Achievement {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

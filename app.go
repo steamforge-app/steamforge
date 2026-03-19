@@ -267,6 +267,7 @@ func (a *App) LoadAchievementsFromSchema(appID uint32) ([]models.Achievement, er
 			}
 		}
 		settings.SaveAchievementCounts(appID, achieved, len(achievements))
+		services.MergeSchemaPermissions(appID, achievements)
 		return achievements, nil
 	}
 	if err != nil {
