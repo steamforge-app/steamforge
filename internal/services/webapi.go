@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"steamforge/internal/models"
+	"steamforge/internal/settings"
 )
 
 const privacyPublic = "public"
@@ -141,16 +142,12 @@ func (w *SteamWebAPI) GetFullAchievements(appID uint32) ([]models.Achievement, e
 		return nil, fmt.Errorf("profile is %s", result.PrivacyState)
 	}
 
-	percents := w.GetGlobalPercents(appID)
-	slog.Info("global percents fetched", "appID", appID, "count", len(percents))
-
-	matched := 0
 	achievements := make([]models.Achievement, 0, len(result.Achievements.Items))
-	for i, a := range result.Achievements.Items {
+	for _, a := range result.Achievements.Items {
 		if a.APIName == "" {
 			continue
 		}
-		ach := models.Achievement{
+		achievements = append(achievements, models.Achievement{
 			ID:          a.APIName,
 			Name:        a.Name,
 			Description: a.Description,
@@ -158,19 +155,8 @@ func (w *SteamWebAPI) GetFullAchievements(appID uint32) ([]models.Achievement, e
 			IconGrayURL: a.IconOpen,
 			IsAchieved:  a.Closed == 1,
 			UnlockTime:  uint32(a.UnlockTimestamp),
-		}
-		if p, ok := percents[a.APIName]; ok {
-			ach.Percent = p
-			matched++
-			if i < 3 {
-				slog.Debug("percent match sample", "apiName", a.APIName, "percent", p)
-			}
-		} else if i < 3 {
-			slog.Debug("percent miss sample", "apiName", a.APIName)
-		}
-		achievements = append(achievements, ach)
+		})
 	}
-	slog.Info("achievements built", "appID", appID, "total", len(achievements), "withPercent", matched)
 	return achievements, nil
 }
 
@@ -186,40 +172,38 @@ type globalPercentResponse struct {
 
 // GetGlobalPercents fetches global unlock percentages for a game.
 // Uses the public Steam Web API — no API key needed.
-// Results are cached for 15 minutes. Retries once on failure.
+// Results are cached in memory for 15 minutes and on disk for 24 hours.
 func (w *SteamWebAPI) GetGlobalPercents(appID uint32) map[string]float32 {
-	// Check cache first
+	// Check in-memory cache first (15 min)
 	percentCache.RLock()
 	if entry, ok := percentCache.entries[appID]; ok && time.Since(entry.fetchedAt) < percentCacheTTL {
 		percentCache.RUnlock()
-		slog.Info("global percents cache hit", "appID", appID, "count", len(entry.data), "age", time.Since(entry.fetchedAt).Round(time.Second))
+		slog.Info("global percents memory cache hit", "appID", appID, "count", len(entry.data))
 		return entry.data
 	}
 	percentCache.RUnlock()
-	slog.Info("global percents cache miss", "appID", appID)
 
-	// Try up to 2 times with a delay between attempts
-	for attempt := 1; attempt <= 2; attempt++ {
-		if attempt > 1 {
-			slog.Info("retrying global percents", "appID", appID, "attempt", attempt)
-			select {
-			case <-time.After(2 * time.Second):
-			case <-w.ctx.Done():
-				return nil
-			}
-		}
-
-		percents := w.fetchGlobalPercents(appID)
-		if percents != nil {
-			// Store in cache
-			percentCache.Lock()
-			percentCache.entries[appID] = percentCacheEntry{data: percents, fetchedAt: time.Now()}
-			percentCache.Unlock()
-			return percents
-		}
+	// Check disk cache (24 h) before hitting the network
+	if diskData, ok := settings.LoadPercentEntry(appID); ok {
+		slog.Info("global percents disk cache hit", "appID", appID, "count", len(diskData))
+		percentCache.Lock()
+		percentCache.entries[appID] = percentCacheEntry{data: diskData, fetchedAt: time.Now()}
+		percentCache.Unlock()
+		return diskData
 	}
 
-	slog.Warn("global percents failed after retries", "appID", appID)
+	slog.Info("global percents cache miss", "appID", appID)
+
+	percents := w.fetchGlobalPercents(appID)
+	if percents != nil {
+		percentCache.Lock()
+		percentCache.entries[appID] = percentCacheEntry{data: percents, fetchedAt: time.Now()}
+		percentCache.Unlock()
+		settings.SavePercentEntry(appID, percents)
+		return percents
+	}
+
+	slog.Warn("global percents fetch failed", "appID", appID)
 	return nil
 }
 

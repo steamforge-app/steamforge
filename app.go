@@ -180,7 +180,21 @@ func (a *App) reconnectForGame(appID uint32) error {
 		a.achieveService = nil
 	}
 
-	client, gameService, achieveService, err := a.initClient(appID)
+	var client *steam.Client
+	var gameService *services.GameService
+	var achieveService *services.AchievementService
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if attempt > 1 {
+			slog.Info("retrying Steam reconnect", "appID", appID, "attempt", attempt)
+			time.Sleep(time.Duration(attempt) * 300 * time.Millisecond)
+		}
+		client, gameService, achieveService, err = a.initClient(appID)
+		if err == nil {
+			break
+		}
+		slog.Warn("Steam connect attempt failed", "appID", appID, "attempt", attempt, "error", err)
+	}
 	if err != nil {
 		slog.Error("reconnect failed", "appID", appID, "error", err)
 		return fmt.Errorf("reconnect for app %d: %w", appID, err)
@@ -294,7 +308,6 @@ func (a *App) LoadAchievements(appID uint32) ([]models.Achievement, error) {
 
 	a.mu.RLock()
 	achievementService := a.achieveService
-	client := a.steamClient
 	a.mu.RUnlock()
 
 	if achievementService == nil {
@@ -303,28 +316,6 @@ func (a *App) LoadAchievements(appID uint32) ([]models.Achievement, error) {
 	result, err := achievementService.LoadAchievements(appID)
 	if err != nil {
 		return nil, err
-	}
-
-	// Fill in missing percent data from the web API
-	needsPercent := false
-	for _, ach := range result {
-		if ach.Percent == 0 {
-			needsPercent = true
-			break
-		}
-	}
-	if needsPercent && client != nil {
-		webAPI := services.NewSteamWebAPI(client.SteamID(), a.ctx)
-		percents := webAPI.GetGlobalPercents(appID)
-		if len(percents) > 0 {
-			for i := range result {
-				if result[i].Percent == 0 {
-					if p, ok := percents[result[i].ID]; ok {
-						result[i].Percent = p
-					}
-				}
-			}
-		}
 	}
 
 	cacheAchievementCounts(appID, result)

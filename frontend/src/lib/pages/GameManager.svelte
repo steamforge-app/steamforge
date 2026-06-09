@@ -200,7 +200,6 @@
       loadDebounceTimer = setTimeout(() => {
         loadDebounceTimer = null;
         loadAchievements();
-        startPercentPolling();
       }, 350);
     }
   });
@@ -287,6 +286,7 @@
             achievements.set(withPercents);
             snapshotState();
             syncAchievementCounts();
+            startPercentPolling();
             return;
           }
         } catch {
@@ -306,6 +306,7 @@
           achievements.set(withPercents);
           snapshotState();
           syncAchievementCounts();
+          startPercentPolling();
           gameConnected = true;
         } catch (e: any) {
           // Game may not support achievements — disconnect to avoid staying "in-game"
