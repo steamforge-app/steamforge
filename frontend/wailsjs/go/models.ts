@@ -78,6 +78,27 @@ export namespace models {
 
 }
 
+export namespace services {
+	
+	export class HLTBTimes {
+	    main: number;
+	    mainExtra: number;
+	    completionist: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new HLTBTimes(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.main = source["main"];
+	        this.mainExtra = source["mainExtra"];
+	        this.completionist = source["completionist"];
+	    }
+	}
+
+}
+
 export namespace settings {
 	
 	export class Settings {

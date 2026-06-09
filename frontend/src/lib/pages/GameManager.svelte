@@ -10,7 +10,8 @@
   import SettingsPanel from '../components/SettingsPanel.svelte';
   import {
     LoadAchievements, LoadAchievementsFromSchema, SetAchievement, ClearAchievement,
-    ClearAllAchievements, StoreStats, DisconnectGame, FetchGlobalPercents, CheckGameEarlyAccess
+    ClearAllAchievements, StoreStats, DisconnectGame, FetchGlobalPercents, CheckGameEarlyAccess,
+    GetHLTBTimes
   } from '../../../wailsjs/go/main/App';
   import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime';
   import { buildHeroImageUrls } from '../utils/steam-images';
@@ -32,6 +33,9 @@
   let heroImageIndex = $state(0);
   let heroAllFailed = $state(false);
   let heroImageLoaded = $state(false);
+
+  let hltbTimes = $state<{ main: number; mainExtra: number; completionist: number } | null>(null);
+  let hltbLoading = $state(false);
 
   let heroImageUrls = $derived(buildHeroImageUrls($selectedAppId));
   let currentHeroSrc = $derived(heroImageUrls[heroImageIndex]);
@@ -100,10 +104,27 @@
     heroImageLoaded = false;
     heroHeight = HERO_MAX;
     targetHeroHeight = HERO_MAX;
+    hltbTimes = null;
+    hltbLoading = false;
     if (animationFrame) {
       cancelAnimationFrame(animationFrame);
       animationFrame = null;
     }
+  });
+
+  $effect(() => {
+    const appId = $selectedAppId;
+    const gameName = $selectedGameName;
+    if (appId <= 0 || !gameName) return;
+    hltbLoading = true;
+    GetHLTBTimes(appId, gameName)
+      .then(result => {
+        if ($selectedAppId === appId) hltbTimes = result;
+      })
+      .catch((e: unknown) => { console.error('HLTB fetch failed:', e); })
+      .finally(() => {
+        if ($selectedAppId === appId) hltbLoading = false;
+      });
   });
 
   $effect(() => {
@@ -819,17 +840,37 @@
         </button>
       {/if}
     </div>
-    <div class="absolute bottom-4 left-6 flex items-center gap-2">
-      <h1
-        class="text-2xl font-bold text-white"
-        style="text-shadow: 0 2px 8px rgba(0,0,0,0.7)"
-      >
-        {$selectedGameName}
-      </h1>
-      {#if $achievementCounts[String($selectedAppId)]?.earlyAccess}
-        <span class="px-2 py-0.5 text-xs font-medium rounded bg-blue-500/80 text-white" style="text-shadow: 0 1px 2px rgba(0,0,0,0.5)">
-          Early Access
-        </span>
+    <div class="absolute bottom-4 left-6 flex flex-col gap-1">
+      <div class="flex items-center gap-2">
+        <h1
+          class="text-2xl font-bold text-white"
+          style="text-shadow: 0 2px 8px rgba(0,0,0,0.7)"
+        >
+          {$selectedGameName}
+        </h1>
+        {#if $achievementCounts[String($selectedAppId)]?.earlyAccess}
+          <span class="px-2 py-0.5 text-xs font-medium rounded bg-blue-500/80 text-white" style="text-shadow: 0 1px 2px rgba(0,0,0,0.5)">
+            Early Access
+          </span>
+        {/if}
+      </div>
+      {#if hltbLoading}
+        <div class="flex items-center gap-1.5">
+          <div class="w-3 h-3 border border-white/40 border-t-transparent rounded-full animate-spin"></div>
+          <span class="text-xs text-white/40" style="text-shadow: 0 1px 4px rgba(0,0,0,0.7)">Loading times...</span>
+        </div>
+      {:else if hltbTimes && (hltbTimes.main > 0 || hltbTimes.mainExtra > 0 || hltbTimes.completionist > 0)}
+        <div class="flex items-center gap-3 text-xs text-white/60" style="text-shadow: 0 1px 4px rgba(0,0,0,0.7)">
+          {#if hltbTimes.main > 0}
+            <span title="Main story"><span class="text-white/35">Main</span> {hltbTimes.main}h</span>
+          {/if}
+          {#if hltbTimes.mainExtra > 0}
+            <span title="Main + Extras"><span class="text-white/35">+Extras</span> {hltbTimes.mainExtra}h</span>
+          {/if}
+          {#if hltbTimes.completionist > 0}
+            <span title="Completionist"><span class="text-white/35">100%</span> {hltbTimes.completionist}h</span>
+          {/if}
+        </div>
       {/if}
     </div>
     {#if totalCount > 0 && !$achievementsLoading}

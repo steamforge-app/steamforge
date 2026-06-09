@@ -3,6 +3,7 @@
 import {main} from '../models';
 import {models} from '../models';
 import {settings} from '../models';
+import {services} from '../models';
 
 export function CheckForUpdates():Promise<main.UpdateInfo>;
 
@@ -29,6 +30,8 @@ export function GetAchievements():Promise<Array<models.Achievement>>;
 export function GetAppVersion():Promise<string>;
 
 export function GetDataDir():Promise<string>;
+
+export function GetHLTBTimes(arg1:number,arg2:string):Promise<services.HLTBTimes>;
 
 export function GetImageBase64(arg1:string):Promise<string>;
 

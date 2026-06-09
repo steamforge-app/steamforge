@@ -410,6 +410,35 @@ func (a *App) GetAchievementCounts() map[uint32]settings.AchievementCount {
 	return settings.LoadAchievementCache()
 }
 
+// GetHLTBTimes returns completion time estimates for a game from HowLongToBeat.
+// Returns cached data immediately if available; otherwise fetches live and caches the result.
+func (a *App) GetHLTBTimes(appID uint32, gameName string) (*services.HLTBTimes, error) {
+	if entry, ok := settings.GetHLTBEntry(appID); ok {
+		return &services.HLTBTimes{
+			Main:          entry.Main,
+			MainExtra:     entry.MainExtra,
+			Completionist: entry.Completionist,
+		}, nil
+	}
+
+	svc := services.NewHLTBService(a.ctx)
+	times, err := svc.Search(gameName)
+	if err != nil {
+		slog.Warn("hltb search failed", "appID", appID, "game", gameName, "error", err)
+		return nil, err
+	}
+	if times == nil {
+		return nil, nil
+	}
+
+	settings.SaveHLTBEntry(appID, settings.HLTBEntry{
+		Main:          times.Main,
+		MainExtra:     times.MainExtra,
+		Completionist: times.Completionist,
+	})
+	return times, nil
+}
+
 func (a *App) GetSettings() settings.Settings {
 	return settings.Get()
 }

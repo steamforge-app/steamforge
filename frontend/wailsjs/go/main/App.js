@@ -54,6 +54,10 @@ export function GetDataDir() {
   return window['go']['main']['App']['GetDataDir']();
 }
 
+export function GetHLTBTimes(arg1, arg2) {
+  return window['go']['main']['App']['GetHLTBTimes'](arg1, arg2);
+}
+
 export function GetImageBase64(arg1) {
   return window['go']['main']['App']['GetImageBase64'](arg1);
 }
