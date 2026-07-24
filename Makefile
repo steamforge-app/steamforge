@@ -4,15 +4,15 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 # Default: build for current platform
 build:
-	wails build -tags webkit2_41 -ldflags="-X main.Version=$(VERSION)"
+	wails build -tags webkit2_41 -devtools -ldflags="-X main.Version=$(VERSION)"
 
 # Windows .exe (run from Windows or WSL with wails in PATH)
 build-windows:
-	GOOS=windows wails build -ldflags="-s -w -X main.Version=$(VERSION)"
+	GOOS=windows wails build -devtools -ldflags="-s -w -X main.Version=$(VERSION)"
 
 # Linux binary (Ubuntu 24.04 needs webkit2_41 tag)
 build-linux:
-	wails build -tags webkit2_41 -ldflags="-s -w -X main.Version=$(VERSION)"
+	wails build -tags webkit2_41 -devtools -ldflags="-s -w -X main.Version=$(VERSION)"
 
 # Development mode with hot reload
 dev:
