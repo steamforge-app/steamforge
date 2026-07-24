@@ -14,6 +14,7 @@ import (
 
 	"steamforge/internal/models"
 	"steamforge/internal/settings"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const privacyPublic = "public"
@@ -21,7 +22,8 @@ const privacyPublic = "public"
 // percentCache caches global achievement percentages per appID.
 var percentCache struct {
 	sync.RWMutex
-	entries map[uint32]percentCacheEntry
+	entries    map[uint32]percentCacheEntry
+	refreshing map[uint32]bool
 }
 
 type percentCacheEntry struct {
@@ -33,6 +35,7 @@ const percentCacheTTL = 15 * time.Minute
 
 func init() {
 	percentCache.entries = make(map[uint32]percentCacheEntry)
+	percentCache.refreshing = make(map[uint32]bool)
 }
 
 // SteamWebAPI fetches achievement data from the Steam community profile.
@@ -171,8 +174,10 @@ type globalPercentResponse struct {
 }
 
 // GetGlobalPercents fetches global unlock percentages for a game.
-// Uses the public Steam Web API — no API key needed.
-// Results are cached in memory for 15 minutes and on disk for 24 hours.
+// A fresh (<15 min) in-memory value or any disk-cached value (regardless of
+// age) is returned immediately. A disk-cached value older than 24h also
+// triggers a background refresh that emits a "percents-updated" event once
+// it completes. Only a true first-time miss blocks on a live network fetch.
 func (w *SteamWebAPI) GetGlobalPercents(appID uint32) map[string]float32 {
 	// Check in-memory cache first (15 min)
 	percentCache.RLock()
@@ -183,12 +188,16 @@ func (w *SteamWebAPI) GetGlobalPercents(appID uint32) map[string]float32 {
 	}
 	percentCache.RUnlock()
 
-	// Check disk cache (24 h) before hitting the network
-	if diskData, ok := settings.LoadPercentEntry(appID); ok {
-		slog.Info("global percents disk cache hit", "appID", appID, "count", len(diskData))
+	// Check disk cache before hitting the network — any age is usable immediately.
+	if diskData, stale, found := settings.LoadPercentEntry(appID); found {
+		slog.Info("global percents disk cache hit", "appID", appID, "count", len(diskData), "stale", stale)
 		percentCache.Lock()
 		percentCache.entries[appID] = percentCacheEntry{data: diskData, fetchedAt: time.Now()}
 		percentCache.Unlock()
+
+		if stale {
+			w.refreshGlobalPercentsAsync(appID)
+		}
 		return diskData
 	}
 
@@ -205,6 +214,43 @@ func (w *SteamWebAPI) GetGlobalPercents(appID uint32) map[string]float32 {
 
 	slog.Warn("global percents fetch failed", "appID", appID)
 	return nil
+}
+
+// refreshGlobalPercentsAsync re-fetches percentages in the background for a
+// stale cache entry and emits "percents-updated" when a fresh value lands.
+// No-op if a refresh for this appID is already running.
+func (w *SteamWebAPI) refreshGlobalPercentsAsync(appID uint32) {
+	percentCache.Lock()
+	if percentCache.refreshing[appID] {
+		percentCache.Unlock()
+		return
+	}
+	percentCache.refreshing[appID] = true
+	percentCache.Unlock()
+
+	go func() {
+		defer func() {
+			percentCache.Lock()
+			delete(percentCache.refreshing, appID)
+			percentCache.Unlock()
+		}()
+
+		percents := w.fetchGlobalPercents(appID)
+		if percents == nil {
+			slog.Warn("background percent refresh failed", "appID", appID)
+			return
+		}
+
+		percentCache.Lock()
+		percentCache.entries[appID] = percentCacheEntry{data: percents, fetchedAt: time.Now()}
+		percentCache.Unlock()
+		settings.SavePercentEntry(appID, percents)
+
+		wailsRuntime.EventsEmit(w.ctx, "percents-updated", map[string]any{
+			"appId":    appID,
+			"percents": percents,
+		})
+	}()
 }
 
 // fetchGlobalPercents performs a single fetch of global achievement percentages.
