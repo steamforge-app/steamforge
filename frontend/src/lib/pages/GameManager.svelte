@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { selectedAppId, selectedGameName, selectedGameInstalled, addToast, isLoading, loadingMessage, navigateToPicker, profilePublic, gameComplete } from '../stores/app';
-  import { achievements, achievementsLoading, cachePercents, applyCachedPercents } from '../stores/achievements';
+  import { achievements, achievementsLoading, cachePercents, applyCachedPercents, buildPercentLookup } from '../stores/achievements';
   import { achievementCounts, navigableGames, type GameInfo } from '../stores/games';
   import { settings, updateSetting } from '../stores/settings';
   import AchievementList from '../components/AchievementList.svelte';
@@ -163,12 +163,13 @@
         const percents = await FetchGlobalPercents(appId);
         if (appId !== $selectedAppId) return; // navigated away — drop the result
         if (percents && Object.keys(percents).length > 0) {
+          const lookup = buildPercentLookup(percents);
           achievements.update(list => {
-            const updated = list.map(achievement =>
-              achievement.percent === 0 && percents[achievement.id]
-                ? { ...achievement, percent: percents[achievement.id] }
-                : achievement
-            );
+            const updated = list.map(achievement => {
+              if (achievement.percent !== 0) return achievement;
+              const percent = lookup.get(achievement.id.toLowerCase());
+              return percent ? { ...achievement, percent } : achievement;
+            });
             cachePercents(appId, updated);
             return updated;
           });

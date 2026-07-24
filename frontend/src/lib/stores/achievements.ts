@@ -45,3 +45,14 @@ export function applyCachedPercents(appId: number, achievementList: Achievement[
     return achievement;
   });
 }
+
+// Steam's community/schema endpoint always lowercases achievement API names,
+// while the global-percentages endpoint preserves their original case — so a
+// case-insensitive lookup is required to match a percent to an achievement.
+export function buildPercentLookup(percents: Record<string, number>): Map<string, number> {
+  const lookup = new Map<string, number>();
+  for (const key in percents) {
+    lookup.set(key.toLowerCase(), percents[key]);
+  }
+  return lookup;
+}

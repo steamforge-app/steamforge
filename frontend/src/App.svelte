@@ -4,7 +4,7 @@
   import { currentPage, isConnected, steamId, personaName, scanning, scanProgress, profilePublic, gameComplete, selectedAppId, addToast } from './lib/stores/app';
   import { games, achievementCounts, navigableGames } from './lib/stores/games';
   import { settings } from './lib/stores/settings';
-  import { achievements, achievementsLoading, cachePercents } from './lib/stores/achievements';
+  import { achievements, achievementsLoading, cachePercents, buildPercentLookup } from './lib/stores/achievements';
   import Toast from './lib/components/Toast.svelte';
   import GamePicker from './lib/pages/GamePicker.svelte';
   import GameManager from './lib/pages/GameManager.svelte';
@@ -62,12 +62,12 @@
     });
     EventsOn('percents-updated', (data: { appId: number; percents: Record<string, number> }) => {
       if (data.appId !== $selectedAppId) return;
+      const lookup = buildPercentLookup(data.percents);
       achievements.update(list => {
-        const updated = list.map(achievement =>
-          data.percents[achievement.id] !== undefined
-            ? { ...achievement, percent: data.percents[achievement.id] }
-            : achievement
-        );
+        const updated = list.map(achievement => {
+          const percent = lookup.get(achievement.id.toLowerCase());
+          return percent !== undefined ? { ...achievement, percent } : achievement;
+        });
         cachePercents(data.appId, updated);
         return updated;
       });
