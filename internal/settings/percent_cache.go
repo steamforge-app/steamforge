@@ -52,18 +52,21 @@ func ensurePercentCache() {
 	}
 }
 
-// LoadPercentEntry returns cached percents for an appID if they exist and are within TTL.
-func LoadPercentEntry(appID uint32) (map[string]float32, bool) {
+// LoadPercentEntry returns cached percents for an appID, if any exist on disk.
+// found reports whether an entry exists at all; stale reports whether it is
+// older than the disk TTL and should be refreshed in the background rather
+// than discarded.
+func LoadPercentEntry(appID uint32) (data map[string]float32, stale bool, found bool) {
 	percentCacheMu.Lock()
 	defer percentCacheMu.Unlock()
 
 	ensurePercentCache()
 
 	entry, ok := percentDiskCache[appID]
-	if !ok || time.Since(entry.FetchedAt) > percentCacheDiskTTL {
-		return nil, false
+	if !ok {
+		return nil, false, false
 	}
-	return entry.Data, true
+	return entry.Data, time.Since(entry.FetchedAt) > percentCacheDiskTTL, true
 }
 
 // SavePercentEntry persists percents for an appID to disk (debounced).
