@@ -140,54 +140,48 @@
     gameComplete.set(achievedCount === totalCount && totalCount > 0);
   });
 
-  let percentPollTimer: ReturnType<typeof setTimeout> | null = null;
+  let percentRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function stopPercentPolling() {
-    if (percentPollTimer) {
-      clearTimeout(percentPollTimer);
-      percentPollTimer = null;
+  function stopPercentFetch() {
+    if (percentRetryTimer) {
+      clearTimeout(percentRetryTimer);
+      percentRetryTimer = null;
     }
   }
 
-  function startPercentPolling() {
-    stopPercentPolling();
+  // Fetches percents immediately — no artificial delay. The backend already
+  // returns a cached value instantly (fresh or stale) when one exists, and
+  // refreshes stale values in the background (see the "percents-updated"
+  // listener in App.svelte). Retries here only cover genuine fetch failures.
+  function fetchPercents(appId: number) {
+    stopPercentFetch();
     let attempt = 0;
-    const maxAttempts = 6; // ~2s, 4s, 8s, 16s, 32s, 64s
+    const maxAttempts = 2; // ~2s, 4s
 
-    async function poll() {
-      if ($achievements.length === 0) return;
-
-      const hasMissingPercents = $achievements.some(a => a.percent === 0);
-      if (!hasMissingPercents) return;
-
-      attempt++;
+    async function attemptFetch() {
       try {
-        const percents = await FetchGlobalPercents($selectedAppId);
+        const percents = await FetchGlobalPercents(appId);
+        if (appId !== $selectedAppId) return; // navigated away — drop the result
         if (percents && Object.keys(percents).length > 0) {
           achievements.update(list => {
-            const updated = list.map(achievement => {
-              if (achievement.percent === 0 && percents[achievement.id]) {
-                return { ...achievement, percent: percents[achievement.id] };
-              }
-              return achievement;
-            });
-            cachePercents($selectedAppId, updated);
+            const updated = list.map(achievement =>
+              achievement.percent === 0 && percents[achievement.id]
+                ? { ...achievement, percent: percents[achievement.id] }
+                : achievement
+            );
+            cachePercents(appId, updated);
             return updated;
           });
-          return; // Success — stop polling
         }
       } catch {
-        // Will retry
-      }
-
-      if (attempt < maxAttempts) {
-        const delay = Math.min(2000 * Math.pow(2, attempt - 1), 64000);
-        percentPollTimer = setTimeout(poll, delay);
+        attempt++;
+        if (attempt < maxAttempts) {
+          percentRetryTimer = setTimeout(attemptFetch, 2000 * attempt);
+        }
       }
     }
 
-    // Start first poll after 2 seconds
-    percentPollTimer = setTimeout(poll, 2000);
+    attemptFetch();
   }
 
   let loadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -205,7 +199,7 @@
   });
 
   onDestroy(() => {
-    stopPercentPolling();
+    stopPercentFetch();
     if (animationFrame) cancelAnimationFrame(animationFrame);
     if (loadDebounceTimer) clearTimeout(loadDebounceTimer);
   });
@@ -286,7 +280,7 @@
             achievements.set(withPercents);
             snapshotState();
             syncAchievementCounts();
-            startPercentPolling();
+            fetchPercents($selectedAppId);
             return;
           }
         } catch {
@@ -306,7 +300,7 @@
           achievements.set(withPercents);
           snapshotState();
           syncAchievementCounts();
-          startPercentPolling();
+          fetchPercents($selectedAppId);
           gameConnected = true;
         } catch (e: any) {
           // Game may not support achievements — disconnect to avoid staying "in-game"
@@ -642,7 +636,7 @@
   }
 
   function performGameSwitch(game: GameInfo) {
-    stopPercentPolling();
+    stopPercentFetch();
     if (gameConnected) {
       DisconnectGame().catch(() => {});
     }
