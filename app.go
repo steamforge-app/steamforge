@@ -40,6 +40,7 @@ type App struct {
 	gameService    *services.GameService
 	achieveService *services.AchievementService
 	imageService   *services.ImageService
+	hltbService    *services.HLTBService
 
 	scanCancel context.CancelFunc
 	scanDone   chan struct{}
@@ -420,22 +421,43 @@ func (a *App) SetToPlay(appID uint32, want bool) error {
 
 // GetHLTBTimes returns completion time estimates for a game from HowLongToBeat.
 // Returns cached data immediately if available; otherwise fetches live and caches the result.
+// hltbNegativeCacheTTL controls how long a confirmed "no HLTB match" result
+// is trusted before it's worth re-checking live (HLTB's database grows over time).
+const hltbNegativeCacheTTL = 30 * 24 * time.Hour
+
+// getHLTBService returns a process-lifetime HLTBService singleton so its
+// auth token (5-minute TTL) and search mutex are actually shared across calls,
+// instead of being discarded and refetched on every lookup.
+func (a *App) getHLTBService() *services.HLTBService {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.hltbService == nil {
+		a.hltbService = services.NewHLTBService(a.ctx)
+	}
+	return a.hltbService
+}
+
 func (a *App) GetHLTBTimes(appID uint32, gameName string) (*services.HLTBTimes, error) {
 	if entry, ok := settings.GetHLTBEntry(appID); ok {
-		return &services.HLTBTimes{
-			Main:          entry.Main,
-			MainExtra:     entry.MainExtra,
-			Completionist: entry.Completionist,
-		}, nil
+		if entry.Main > 0 || entry.MainExtra > 0 || entry.Completionist > 0 {
+			return &services.HLTBTimes{
+				Main:          entry.Main,
+				MainExtra:     entry.MainExtra,
+				Completionist: entry.Completionist,
+			}, nil
+		}
+		if time.Since(time.Unix(entry.CheckedAt, 0)) < hltbNegativeCacheTTL {
+			return nil, nil
+		}
 	}
 
-	svc := services.NewHLTBService(a.ctx)
-	times, err := svc.Search(gameName)
+	times, err := a.getHLTBService().Search(gameName)
 	if err != nil {
 		slog.Warn("hltb search failed", "appID", appID, "game", gameName, "error", err)
 		return nil, err
 	}
 	if times == nil {
+		settings.SaveHLTBEntry(appID, settings.HLTBEntry{CheckedAt: time.Now().Unix()})
 		return nil, nil
 	}
 
@@ -443,6 +465,7 @@ func (a *App) GetHLTBTimes(appID uint32, gameName string) (*services.HLTBTimes, 
 		Main:          times.Main,
 		MainExtra:     times.MainExtra,
 		Completionist: times.Completionist,
+		CheckedAt:     time.Now().Unix(),
 	})
 	return times, nil
 }

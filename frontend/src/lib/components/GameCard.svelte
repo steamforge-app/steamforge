@@ -8,6 +8,7 @@
   import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime';
   import { showGameContextMenu } from '../utils/context-menu';
   import { toPlayList, toggleToPlay } from '../stores/toplay';
+  import { fetchHLTBIfMissing } from '../utils/hltb-lazy-fetch';
 
   interface Props {
     game: GameInfo;
@@ -40,6 +41,10 @@
   let playtimeHours = $derived($playtimes[String(game.appId)]);
   let hltbMain = $derived($hltbCache[String(game.appId)]?.main);
   let hltbCompletionist = $derived($hltbCache[String(game.appId)]?.completionist);
+
+  $effect(() => {
+    fetchHLTBIfMissing(game.appId, game.name);
+  });
 
   function handleToggleToPlay(e: Event) {
     e.stopPropagation();

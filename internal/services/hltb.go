@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,9 +39,10 @@ type hltbToken struct {
 
 // HLTBService fetches completion times from howlongtobeat.com.
 type HLTBService struct {
-	client *http.Client
-	ctx    context.Context
-	token  *hltbToken
+	client   *http.Client
+	ctx      context.Context
+	token    *hltbToken
+	searchMu sync.Mutex
 }
 
 func NewHLTBService(ctx context.Context) *HLTBService {
@@ -52,7 +54,12 @@ func NewHLTBService(ctx context.Context) *HLTBService {
 
 // Search returns completion times for the game closest to name.
 // Returns nil with no error when no match is found.
+// Serialized via searchMu so concurrent callers (e.g. many cards mounting at
+// once as a user scrolls the library) never hit HLTB in parallel.
 func (h *HLTBService) Search(name string) (*HLTBTimes, error) {
+	h.searchMu.Lock()
+	defer h.searchMu.Unlock()
+
 	if err := h.ensureToken(); err != nil {
 		slog.Warn("hltb: ensureToken failed", "error", err)
 		return nil, fmt.Errorf("hltb token: %w", err)

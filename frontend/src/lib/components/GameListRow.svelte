@@ -8,6 +8,7 @@
   import { settings } from '../stores/settings';
   import { showGameContextMenu } from '../utils/context-menu';
   import { toPlayList, toggleToPlay } from '../stores/toplay';
+  import { fetchHLTBIfMissing } from '../utils/hltb-lazy-fetch';
 
   interface Props {
     game: GameInfo;
@@ -51,6 +52,10 @@
       .filter(Boolean)
       .join(' · ')
   );
+
+  $effect(() => {
+    fetchHLTBIfMissing(game.appId, game.name);
+  });
 
   function handleToggleToPlay(e: Event) {
     e.stopPropagation();

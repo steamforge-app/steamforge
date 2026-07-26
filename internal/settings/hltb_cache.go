@@ -13,6 +13,10 @@ type HLTBEntry struct {
 	Main          float32 `json:"main"`
 	MainExtra     float32 `json:"mainExtra"`
 	Completionist float32 `json:"completionist"`
+	// CheckedAt is a unix timestamp, only consulted when Main/MainExtra/Completionist
+	// are all zero (an explicit "no HLTB match found" record) to decide whether
+	// it's worth re-checking live.
+	CheckedAt int64 `json:"checkedAt"`
 }
 
 var (
