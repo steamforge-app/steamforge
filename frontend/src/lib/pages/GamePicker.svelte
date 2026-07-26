@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { games, gamesLoading, searchQuery, achievementCounts } from '../stores/games';
+  import { games, gamesLoading, searchQuery, achievementCounts, playtimes, hltbCache } from '../stores/games';
   import { loadToPlayList, toPlayList } from '../stores/toplay';
   import { currentPage, isConnected, steamId, personaName, addToast, isLoading, loadingMessage, scanning, scanProgress, profilePublic, gameFilter } from '../stores/app';
   import type { GameFilter } from '../stores/app';
@@ -11,7 +11,7 @@
   import GameGrid from '../components/GameGrid.svelte';
   import ContextMenu from '../components/ContextMenu.svelte';
   import SettingsPanel from '../components/SettingsPanel.svelte';
-  import { ConnectSteam, FetchGames, GetAchievementCounts, ScanAchievementCounts, GetPersonaName } from '../../../wailsjs/go/main/App';
+  import { ConnectSteam, FetchGames, GetAchievementCounts, ScanAchievementCounts, GetPersonaName, GetAllPlaytimes, GetAllCachedHLTB } from '../../../wailsjs/go/main/App';
   import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime';
 
   let retryInterval = $state<ReturnType<typeof setInterval> | null>(null);
@@ -22,6 +22,17 @@
       clearInterval(retryInterval);
       retryInterval = null;
     }
+  }
+
+  async function loadCardEnrichment() {
+    try {
+      const playtimeMap = await GetAllPlaytimes();
+      playtimes.set(playtimeMap || {});
+    } catch { /* cache not critical */ }
+    try {
+      const hltbMap = await GetAllCachedHLTB();
+      hltbCache.set(hltbMap || {});
+    } catch { /* cache not critical */ }
   }
 
   async function handleSuccessfulConnection(id: number) {
@@ -36,6 +47,7 @@
       achievementCounts.set(counts || {});
     } catch { /* cache not critical */ }
     loadToPlayList();
+    loadCardEnrichment();
     startScan();
   }
 
@@ -67,6 +79,7 @@
         achievementCounts.set(counts || {});
       } catch { /* cache not critical */ }
       loadToPlayList();
+      loadCardEnrichment();
       if (!$scanning) {
         startScan();
       }
@@ -81,6 +94,7 @@
           GetAchievementCounts().then(counts => achievementCounts.set(counts || {}));
         } catch { /* cache not critical */ }
         loadToPlayList();
+        loadCardEnrichment();
         startScan();
       });
     } else {
