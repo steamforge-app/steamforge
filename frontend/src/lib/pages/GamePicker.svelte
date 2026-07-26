@@ -176,7 +176,7 @@
       searchFiltered = searchFiltered.filter(game => game.name.toLowerCase().includes(query));
     }
 
-    let incomplete = 0, perfected = 0, noAchievements = 0, toPlay = 0;
+    let incomplete = 0, perfected = 0, noAchievements = 0, toPlay = 0, abandoned = 0;
     for (const game of searchFiltered) {
       const counts = $achievementCounts[String(game.appId)];
       if (!counts || counts.total === 0) {
@@ -187,6 +187,10 @@
         incomplete++;
       }
       if ($toPlayList.has(game.appId)) toPlay++;
+      const playtimeHours = $playtimes[String(game.appId)];
+      if (counts && counts.total > 0 && counts.achieved === 0 && playtimeHours && playtimeHours > 0) {
+        abandoned++;
+      }
     }
     return {
       all: searchFiltered.length,
@@ -194,6 +198,7 @@
       perfected,
       none: noAchievements,
       toPlay,
+      abandoned,
     };
   });
 
@@ -203,6 +208,7 @@
     { value: 'perfected', label: 'Perfected' },
     { value: 'none', label: 'No Achievements' },
     { value: 'toPlay', label: 'Games to Play' },
+    { value: 'abandoned', label: 'Abandoned' },
   ];
 
   let activeFilterLabel = $derived(filterOptions.find(o => o.value === $gameFilter)?.label ?? 'All');

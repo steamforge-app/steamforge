@@ -35,8 +35,8 @@ export const playtimes = writable<Record<string, number>>({});
 export const hltbCache = writable<Record<string, HLTBCacheEntry>>({});
 
 export const filteredGames = derived(
-  [games, searchQuery, settings, achievementCounts, gameFilter, toPlayList],
-  ([$games, $searchQuery, $settings, $achievementCounts, $gameFilter, $toPlayList]) => {
+  [games, searchQuery, settings, achievementCounts, gameFilter, toPlayList, playtimes],
+  ([$games, $searchQuery, $settings, $achievementCounts, $gameFilter, $toPlayList, $playtimes]) => {
     let result = $games;
 
     // Hide software/tools unless the setting is enabled
@@ -53,6 +53,12 @@ export const filteredGames = derived(
 
     if ($gameFilter === 'toPlay') {
       result = result.filter(game => $toPlayList.has(game.appId));
+    } else if ($gameFilter === 'abandoned') {
+      result = result.filter(game => {
+        const counts = $achievementCounts[String(game.appId)];
+        const playtimeHours = $playtimes[String(game.appId)];
+        return !!counts && counts.total > 0 && counts.achieved === 0 && !!playtimeHours && playtimeHours > 0;
+      });
     } else if ($gameFilter && $gameFilter !== 'all') {
       result = result.filter(game => {
         const counts = $achievementCounts[String(game.appId)];

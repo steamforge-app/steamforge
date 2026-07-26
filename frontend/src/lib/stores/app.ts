@@ -16,7 +16,7 @@ export const profilePublic = writable<'unknown' | 'public' | 'private'>('unknown
 export const scanProgress = writable<{ current: number; total: number; name: string }>({ current: 0, total: 0, name: '' });
 export const gameComplete = writable<boolean>(false);
 
-export type GameFilter = 'all' | 'incomplete' | 'perfected' | 'none' | 'toPlay';
+export type GameFilter = 'all' | 'incomplete' | 'perfected' | 'none' | 'toPlay' | 'abandoned';
 export const gameFilter = writable<GameFilter>('all');
 
 export interface ToastAction {
