@@ -46,6 +46,14 @@ export function GetAchievements() {
   return window['go']['main']['App']['GetAchievements']();
 }
 
+export function GetAllCachedHLTB() {
+  return window['go']['main']['App']['GetAllCachedHLTB']();
+}
+
+export function GetAllPlaytimes() {
+  return window['go']['main']['App']['GetAllPlaytimes']();
+}
+
 export function GetAppVersion() {
   return window['go']['main']['App']['GetAppVersion']();
 }
