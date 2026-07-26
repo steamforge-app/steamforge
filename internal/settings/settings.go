@@ -89,6 +89,7 @@ func SetCurrentUser(steamID uint64) {
 
 	resetAchievementCache()
 	resetGameCache()
+	resetToPlayList()
 	reloadSettings()
 
 	slog.Info("current user set", "steamID", steamID)
