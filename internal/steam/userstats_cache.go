@@ -1,7 +1,6 @@
 package steam
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -96,18 +95,18 @@ func parseUserStatsAchievedCount(path string) (int, error) {
 		return 0, nil
 	}
 
-	br := &statsReader{r: f}
+	br := newBinaryReader(f)
 	return countAchievementTimes(br)
 }
 
 // countAchievementTimes walks the binary VDF tree looking for the
 // "AchievementTimes" object and counts its child entries.
 // Uses standard binary VDF type codes (0x02 = Int32).
-func countAchievementTimes(br *statsReader) (int, error) {
+func countAchievementTimes(br *binaryReader) (int, error) {
 	return walkVDFForAchievements(br, 0, false)
 }
 
-func walkVDFForAchievements(br *statsReader, depth int, inAchTimes bool) (int, error) {
+func walkVDFForAchievements(br *binaryReader, depth int, inAchTimes bool) (int, error) {
 	if depth > 32 {
 		return 0, errors.New("VDF nesting too deep")
 	}
@@ -174,54 +173,4 @@ func fixedValueSize(t byte) (int, error) {
 	default:
 		return 0, fmt.Errorf("unrecognized type 0x%02X", t)
 	}
-}
-
-// statsReader is a minimal binary reader for user stats files.
-type statsReader struct {
-	r   io.Reader
-	buf [8]byte
-}
-
-func (r *statsReader) readByte() (byte, error) {
-	_, err := io.ReadFull(r.r, r.buf[:1])
-	return r.buf[0], err
-}
-
-func (r *statsReader) readU32() (uint32, error) {
-	_, err := io.ReadFull(r.r, r.buf[:4])
-	if err != nil {
-		return 0, err
-	}
-	return binary.LittleEndian.Uint32(r.buf[:4]), nil
-}
-
-func (r *statsReader) readCString() (string, error) {
-	var result []byte
-	for {
-		b, err := r.readByte()
-		if err != nil {
-			return "", err
-		}
-		if b == 0 {
-			return string(result), nil
-		}
-		result = append(result, b)
-		if len(result) > 64*1024 {
-			return "", errors.New("string exceeds 64KB limit")
-		}
-	}
-}
-
-func (r *statsReader) skip(n int) error {
-	for n > 0 {
-		chunk := n
-		if chunk > len(r.buf) {
-			chunk = len(r.buf)
-		}
-		if _, err := io.ReadFull(r.r, r.buf[:chunk]); err != nil {
-			return err
-		}
-		n -= chunk
-	}
-	return nil
 }

@@ -1,7 +1,6 @@
 package steam
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -49,7 +48,7 @@ func ScanPackageAppIDs() ([]uint32, error) {
 }
 
 func parsePackageInfo(r io.Reader) ([]uint32, error) {
-	br := &pkgReader{r: r}
+	br := newBinaryReader(r)
 
 	// Header: 4-byte magic, 4-byte universe.
 	magic, err := br.readU32()
@@ -120,13 +119,13 @@ func parsePackageInfo(r io.Reader) ([]uint32, error) {
 
 // readPackageVDFAppIDs reads one binary VDF blob from the stream, returning
 // only the app IDs found under the "appids" key.
-func readPackageVDFAppIDs(br *pkgReader) ([]uint32, error) {
+func readPackageVDFAppIDs(br *binaryReader) ([]uint32, error) {
 	return vdfCollectAppIDs(br, 0, false)
 }
 
 // vdfCollectAppIDs recursively walks a binary VDF object. When inside an
 // "appids" container, int32 values are collected as app IDs.
-func vdfCollectAppIDs(br *pkgReader, depth int, collectInts bool) ([]uint32, error) {
+func vdfCollectAppIDs(br *binaryReader, depth int, collectInts bool) ([]uint32, error) {
 	if depth > 32 {
 		return nil, errors.New("VDF nesting too deep")
 	}
@@ -197,55 +196,4 @@ func bvdfValueSize(t byte) (int, error) {
 	default:
 		return 0, fmt.Errorf("unrecognized type 0x%02X", t)
 	}
-}
-
-// pkgReader is a minimal binary reader for packageinfo.vdf.
-type pkgReader struct {
-	r   io.Reader
-	buf [8]byte
-}
-
-func (r *pkgReader) readByte() (byte, error) {
-	_, err := io.ReadFull(r.r, r.buf[:1])
-	return r.buf[0], err
-}
-
-func (r *pkgReader) readU32() (uint32, error) {
-	_, err := io.ReadFull(r.r, r.buf[:4])
-	if err != nil {
-		return 0, err
-	}
-	return binary.LittleEndian.Uint32(r.buf[:4]), nil
-}
-
-func (r *pkgReader) readCString() (string, error) {
-	var result []byte
-	for {
-		b, err := r.readByte()
-		if err != nil {
-			return "", err
-		}
-		if b == 0 {
-			return string(result), nil
-		}
-		result = append(result, b)
-		if len(result) > 64*1024 {
-			return "", errors.New("string exceeds 64KB limit")
-		}
-	}
-}
-
-func (r *pkgReader) skip(n int) error {
-	// Use buf for small skips, discard for larger.
-	for n > 0 {
-		chunk := n
-		if chunk > len(r.buf) {
-			chunk = len(r.buf)
-		}
-		if _, err := io.ReadFull(r.r, r.buf[:chunk]); err != nil {
-			return err
-		}
-		n -= chunk
-	}
-	return nil
 }
