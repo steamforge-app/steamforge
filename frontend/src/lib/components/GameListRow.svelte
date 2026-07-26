@@ -76,7 +76,7 @@
 <div
   onclick={handleClick}
   onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); }}
-  oncontextmenu={(e) => showGameContextMenu(e, game.appId)}
+  oncontextmenu={(e) => showGameContextMenu(e, game.appId, game.installed)}
   role="button"
   tabindex="0"
   class="w-full flex items-center gap-3 px-4 py-2 hover:bg-steam-hover transition-colors cursor-pointer border-b border-steam-border/30 text-left"

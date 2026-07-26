@@ -126,7 +126,7 @@
   bind:this={wrapperEl}
   onclick={handleClick}
   onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); }}
-  oncontextmenu={(e) => showGameContextMenu(e, game.appId)}
+  oncontextmenu={(e) => showGameContextMenu(e, game.appId, game.installed)}
   onmousemove={handleMouseMove}
   onmouseleave={handleMouseLeave}
   role="button"
