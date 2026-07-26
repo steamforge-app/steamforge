@@ -64,6 +64,9 @@ func (a *App) shutdown(ctx context.Context) {
 	a.stopAccountWatcher()
 	a.stopInstallWatcher()
 
+	settings.FlushHLTBCache()
+	settings.FlushPercentCache()
+
 	a.mu.RLock()
 	client := a.steamClient
 	a.mu.RUnlock()

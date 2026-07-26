@@ -1,11 +1,7 @@
 package settings
 
 import (
-	"encoding/json"
-	"log/slog"
-	"os"
 	"path/filepath"
-	"sync"
 	"time"
 )
 
@@ -16,12 +12,7 @@ type PercentCacheEntry struct {
 	FetchedAt time.Time          `json:"fetchedAt"`
 }
 
-var (
-	percentCacheMu         sync.RWMutex
-	percentDiskCache       map[uint32]PercentCacheEntry
-	percentCacheLoaded     bool
-	percentCacheFlushTimer *time.Timer
-)
+var percentCacheStore = NewJSONCache[uint32, PercentCacheEntry](percentCacheFilePath, cacheFlushDelay, "percent")
 
 func percentCacheFilePath() string {
 	dir := userDir()
@@ -31,38 +22,12 @@ func percentCacheFilePath() string {
 	return filepath.Join(dir, "percents.json")
 }
 
-func ensurePercentCache() {
-	if percentCacheLoaded {
-		return
-	}
-	percentDiskCache = make(map[uint32]PercentCacheEntry)
-	percentCacheLoaded = true
-
-	p := percentCacheFilePath()
-	if p == "" {
-		return
-	}
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return
-	}
-	if err := json.Unmarshal(data, &percentDiskCache); err != nil {
-		slog.Warn("failed to parse percent cache", "error", err)
-		percentDiskCache = make(map[uint32]PercentCacheEntry)
-	}
-}
-
 // LoadPercentEntry returns cached percents for an appID, if any exist on disk.
 // found reports whether an entry exists at all; stale reports whether it is
 // older than the disk TTL and should be refreshed in the background rather
 // than discarded.
 func LoadPercentEntry(appID uint32) (data map[string]float32, stale bool, found bool) {
-	percentCacheMu.Lock()
-	defer percentCacheMu.Unlock()
-
-	ensurePercentCache()
-
-	entry, ok := percentDiskCache[appID]
+	entry, ok := percentCacheStore.Get(appID)
 	if !ok {
 		return nil, false, false
 	}
@@ -71,50 +36,14 @@ func LoadPercentEntry(appID uint32) (data map[string]float32, stale bool, found 
 
 // SavePercentEntry persists percents for an appID to disk (debounced).
 func SavePercentEntry(appID uint32, percents map[string]float32) {
-	percentCacheMu.Lock()
-	defer percentCacheMu.Unlock()
-
-	ensurePercentCache()
-	percentDiskCache[appID] = PercentCacheEntry{Data: percents, FetchedAt: time.Now()}
-
-	if percentCacheFlushTimer != nil {
-		percentCacheFlushTimer.Stop()
-	}
-	percentCacheFlushTimer = time.AfterFunc(cacheFlushDelay, flushPercentCache)
+	percentCacheStore.Set(appID, PercentCacheEntry{Data: percents, FetchedAt: time.Now()})
 }
 
 // FlushPercentCache forces an immediate write of the percent cache to disk.
 func FlushPercentCache() {
-	percentCacheMu.Lock()
-	if percentCacheFlushTimer != nil {
-		percentCacheFlushTimer.Stop()
-		percentCacheFlushTimer = nil
-	}
-	percentCacheMu.Unlock()
-	flushPercentCache()
+	percentCacheStore.Flush()
 }
 
-func flushPercentCache() {
-	percentCacheMu.RLock()
-	p := percentCacheFilePath()
-	if p == "" || percentDiskCache == nil {
-		percentCacheMu.RUnlock()
-		return
-	}
-	data, err := json.Marshal(percentDiskCache)
-	percentCacheMu.RUnlock()
-
-	if err != nil {
-		slog.Warn("failed to marshal percent cache", "error", err)
-		return
-	}
-
-	dir := filepath.Dir(p)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		slog.Warn("failed to create cache dir", "error", err)
-		return
-	}
-	if err := atomicWrite(p, data); err != nil {
-		slog.Warn("failed to write percent cache", "error", err)
-	}
+func resetPercentCache() {
+	percentCacheStore.Reset()
 }

@@ -89,6 +89,8 @@ func SetCurrentUser(steamID uint64) {
 
 	resetAchievementCache()
 	resetGameCache()
+	resetHLTBCache()
+	resetPercentCache()
 	resetToPlayList()
 	reloadSettings()
 

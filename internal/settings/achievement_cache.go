@@ -1,11 +1,8 @@
 package settings
 
 import (
-	"encoding/json"
-	"log/slog"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 )
 
@@ -17,14 +14,7 @@ type AchievementCount struct {
 	Protected   bool   `json:"protected,omitempty"`
 }
 
-const cacheFlushDelay = 500 * time.Millisecond
-
-var (
-	cacheMu         sync.RWMutex
-	achCache        map[uint32]AchievementCount
-	cacheLoaded     bool
-	cacheFlushTimer *time.Timer
-)
+var achCacheStore = NewJSONCache[uint32, AchievementCount](cacheFilePath, cacheFlushDelay, "achievement")
 
 func cacheFilePath() string {
 	dir := userDir()
@@ -35,53 +25,24 @@ func cacheFilePath() string {
 }
 
 func resetAchievementCache() {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-	if cacheFlushTimer != nil {
-		cacheFlushTimer.Stop()
-		cacheFlushTimer = nil
-	}
-	achCache = nil
-	cacheLoaded = false
+	achCacheStore.Reset()
 }
 
+// LoadAchievementCache returns a snapshot copy of the achievement cache.
 func LoadAchievementCache() map[uint32]AchievementCount {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-
-	if !cacheLoaded {
-		achCache = make(map[uint32]AchievementCount)
-		cacheLoaded = true
-
-		p := cacheFilePath()
-		if p != "" {
-			data, err := os.ReadFile(p)
-			if err == nil {
-				if err := json.Unmarshal(data, &achCache); err != nil {
-					slog.Warn("failed to parse achievement cache", "error", err)
-					achCache = make(map[uint32]AchievementCount)
-				}
-			}
-		}
-	}
-
-	result := make(map[uint32]AchievementCount, len(achCache))
-	for k, v := range achCache {
-		result[k] = v
-	}
-	return result
+	return achCacheStore.Load()
 }
 
-
+// ClearAchievementCache clears all achievement data and deletes the cache file.
 func ClearAchievementCache() {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-	if cacheFlushTimer != nil {
-		cacheFlushTimer.Stop()
-		cacheFlushTimer = nil
+	achCacheStore.mu.Lock()
+	defer achCacheStore.mu.Unlock()
+	if achCacheStore.flushTimer != nil {
+		achCacheStore.flushTimer.Stop()
+		achCacheStore.flushTimer = nil
 	}
-	achCache = make(map[uint32]AchievementCount)
-	cacheLoaded = true
+	achCacheStore.data = make(map[uint32]AchievementCount)
+	achCacheStore.loaded = true
 
 	p := cacheFilePath()
 	if p != "" {
@@ -93,29 +54,29 @@ func ClearAchievementCache() {
 //   - Perfected games (achieved == total, total > 0)
 //   - Released games with no achievements (total == 0, not early access)
 func ClearNonPerfectedCache() {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-	if cacheFlushTimer != nil {
-		cacheFlushTimer.Stop()
-		cacheFlushTimer = nil
+	achCacheStore.mu.Lock()
+	defer achCacheStore.mu.Unlock()
+	if achCacheStore.flushTimer != nil {
+		achCacheStore.flushTimer.Stop()
+		achCacheStore.flushTimer = nil
 	}
 
-	if achCache == nil {
-		achCache = make(map[uint32]AchievementCount)
-		cacheLoaded = true
+	if achCacheStore.data == nil {
+		achCacheStore.data = make(map[uint32]AchievementCount)
+		achCacheStore.loaded = true
 		return
 	}
 
-	for appID, entry := range achCache {
+	for appID, entry := range achCacheStore.data {
 		isPerfected := entry.Total > 0 && entry.Achieved == entry.Total
 		isOldReleaseNoAchievements := entry.Total == 0 &&
 			entry.ReleaseDate != "" && entry.ReleaseDate != "unreleased"
 		if !isPerfected && !isOldReleaseNoAchievements {
-			delete(achCache, appID)
+			delete(achCacheStore.data, appID)
 		}
 	}
 
-	cacheFlushTimer = time.AfterFunc(cacheFlushDelay, flushAchievementCache)
+	achCacheStore.flushTimer = time.AfterFunc(cacheFlushDelay, achCacheStore.Flush)
 }
 
 // SaveAchievementCounts updates the in-memory cache and schedules a debounced disk write.
@@ -142,56 +103,11 @@ func SaveAchievementCountsRelease(appID uint32, achieved, total int, releaseDate
 
 // SaveAchievementEntry updates a single cache entry and schedules a debounced flush.
 func SaveAchievementEntry(appID uint32, entry AchievementCount) {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-
-	if achCache == nil {
-		achCache = make(map[uint32]AchievementCount)
-		cacheLoaded = true
-	}
-
-	achCache[appID] = entry
-
-	// Debounce: reset the timer on each call, flush after the delay
-	if cacheFlushTimer != nil {
-		cacheFlushTimer.Stop()
-	}
-	cacheFlushTimer = time.AfterFunc(cacheFlushDelay, flushAchievementCache)
+	achCacheStore.Set(appID, entry)
 }
 
 // FlushAchievementCache forces an immediate write of the achievement cache to disk.
 // Call this at scan completion or shutdown to ensure no data is lost.
 func FlushAchievementCache() {
-	cacheMu.Lock()
-	if cacheFlushTimer != nil {
-		cacheFlushTimer.Stop()
-		cacheFlushTimer = nil
-	}
-	cacheMu.Unlock()
-	flushAchievementCache()
-}
-
-func flushAchievementCache() {
-	cacheMu.RLock()
-	p := cacheFilePath()
-	if p == "" || achCache == nil {
-		cacheMu.RUnlock()
-		return
-	}
-	data, err := json.Marshal(achCache)
-	cacheMu.RUnlock()
-
-	if err != nil {
-		slog.Warn("failed to marshal achievement cache", "error", err)
-		return
-	}
-
-	dir := filepath.Dir(p)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		slog.Warn("failed to create cache dir", "error", err)
-		return
-	}
-	if err := atomicWrite(p, data); err != nil {
-		slog.Warn("failed to write achievement cache", "error", err)
-	}
+	achCacheStore.Flush()
 }

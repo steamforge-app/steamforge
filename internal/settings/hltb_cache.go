@@ -1,12 +1,7 @@
 package settings
 
 import (
-	"encoding/json"
-	"log/slog"
-	"os"
 	"path/filepath"
-	"sync"
-	"time"
 )
 
 type HLTBEntry struct {
@@ -24,12 +19,7 @@ type HLTBEntry struct {
 	GameUpdatedAt int64 `json:"gameUpdatedAt"`
 }
 
-var (
-	hltbMu         sync.RWMutex
-	hltbCache      map[uint32]HLTBEntry
-	hltbLoaded     bool
-	hltbFlushTimer *time.Timer
-)
+var hltbCacheStore = NewJSONCache[uint32, HLTBEntry](hltbCacheFilePath, cacheFlushDelay, "hltb")
 
 func hltbCacheFilePath() string {
 	dir := userDir()
@@ -39,85 +29,28 @@ func hltbCacheFilePath() string {
 	return filepath.Join(dir, "hltb.json")
 }
 
+// LoadHLTBCache returns a snapshot copy of the HLTB cache.
 func LoadHLTBCache() map[uint32]HLTBEntry {
-	hltbMu.Lock()
-	defer hltbMu.Unlock()
-
-	if !hltbLoaded {
-		hltbCache = make(map[uint32]HLTBEntry)
-		hltbLoaded = true
-
-		p := hltbCacheFilePath()
-		if p != "" {
-			data, err := os.ReadFile(p)
-			if err == nil {
-				if err := json.Unmarshal(data, &hltbCache); err != nil {
-					slog.Warn("failed to parse hltb cache", "error", err)
-					hltbCache = make(map[uint32]HLTBEntry)
-				}
-			}
-		}
-	}
-
-	result := make(map[uint32]HLTBEntry, len(hltbCache))
-	for k, v := range hltbCache {
-		result[k] = v
-	}
-	return result
+	return hltbCacheStore.Load()
 }
 
+// GetHLTBEntry retrieves a single HLTB entry by app ID.
 func GetHLTBEntry(appID uint32) (HLTBEntry, bool) {
-	hltbMu.RLock()
-	defer hltbMu.RUnlock()
-
-	if !hltbLoaded {
-		hltbMu.RUnlock()
-		LoadHLTBCache()
-		hltbMu.RLock()
-	}
-
-	entry, ok := hltbCache[appID]
-	return entry, ok
+	return hltbCacheStore.Get(appID)
 }
 
+// SaveHLTBEntry stores an HLTB entry and schedules a debounced write.
 func SaveHLTBEntry(appID uint32, entry HLTBEntry) {
-	hltbMu.Lock()
-	defer hltbMu.Unlock()
-
-	if hltbCache == nil {
-		hltbCache = make(map[uint32]HLTBEntry)
-		hltbLoaded = true
-	}
-
-	hltbCache[appID] = entry
-
-	if hltbFlushTimer != nil {
-		hltbFlushTimer.Stop()
-	}
-	hltbFlushTimer = time.AfterFunc(cacheFlushDelay, flushHLTBCache)
+	hltbCacheStore.Set(appID, entry)
 }
 
-func flushHLTBCache() {
-	hltbMu.RLock()
-	p := hltbCacheFilePath()
-	if p == "" || hltbCache == nil {
-		hltbMu.RUnlock()
-		return
-	}
-	data, err := json.Marshal(hltbCache)
-	hltbMu.RUnlock()
+// FlushHLTBCache forces an immediate write, for use at shutdown so a
+// recently-fetched HLTB entry isn't lost if the app closes before the
+// debounce timer fires.
+func FlushHLTBCache() {
+	hltbCacheStore.Flush()
+}
 
-	if err != nil {
-		slog.Warn("failed to marshal hltb cache", "error", err)
-		return
-	}
-
-	dir := filepath.Dir(p)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		slog.Warn("failed to create hltb cache dir", "error", err)
-		return
-	}
-	if err := atomicWrite(p, data); err != nil {
-		slog.Warn("failed to write hltb cache", "error", err)
-	}
+func resetHLTBCache() {
+	hltbCacheStore.Reset()
 }
