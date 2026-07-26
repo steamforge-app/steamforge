@@ -2,7 +2,7 @@
   import type { GameInfo } from '../stores/games';
   import { achievementCounts, playtimes, hltbCache } from '../stores/games';
   import { navigateToManager } from '../stores/app';
-  import { formatLastPlayed } from '../utils/format';
+  import { formatHoursMinutes } from '../utils/format';
   import { buildGameImageUrls } from '../utils/steam-images';
   import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime';
   import { settings } from '../stores/settings';
@@ -35,13 +35,19 @@
   let isOnToPlayList = $derived($toPlayList.has(game.appId));
   let playtimeHours = $derived($playtimes[String(game.appId)]);
   let hltbMain = $derived($hltbCache[String(game.appId)]?.main);
-  let playtimeLabel = $derived(playtimeHours ? `${Math.round(playtimeHours)}h` : '');
-  let hltbLabel = $derived(hltbMain ? `${Math.round(hltbMain)}h` : '');
+  let hltbCompletionist = $derived($hltbCache[String(game.appId)]?.completionist);
+  let playtimeLabel = $derived(playtimeHours ? formatHoursMinutes(playtimeHours) : '');
+  let hltbMainLabel = $derived(hltbMain ? formatHoursMinutes(hltbMain) : '');
+  let hltbCompletionistLabel = $derived(hltbCompletionist ? formatHoursMinutes(hltbCompletionist) : '');
   let combinedLabel = $derived(
-    playtimeLabel && hltbLabel ? `${playtimeLabel} / ${hltbLabel}` : playtimeLabel || hltbLabel
+    [playtimeLabel, hltbMainLabel, hltbCompletionistLabel].filter(Boolean).join(' / ')
   );
   let combinedTitle = $derived(
-    [playtimeLabel && `Played ${playtimeLabel}`, hltbLabel && `Main story ${hltbLabel}`]
+    [
+      playtimeLabel && `Played ${playtimeLabel}`,
+      hltbMainLabel && `Main story ${hltbMainLabel}`,
+      hltbCompletionistLabel && `100% ${hltbCompletionistLabel}`,
+    ]
       .filter(Boolean)
       .join(' · ')
   );
@@ -130,8 +136,7 @@
   <div class="flex-1 min-w-0">
     <span class="text-sm text-steam-text truncate block">{game.name || `App ${game.appId}`}</span>
   </div>
-  <span class="text-xs text-steam-text-dim w-16 text-right flex-shrink-0" title={game.lastPlayed ? new Date(game.lastPlayed * 1000).toLocaleDateString() : ''}>{game.lastPlayed ? formatLastPlayed(game.lastPlayed) : ''}</span>
-  <span class="text-xs text-steam-text-dim w-16 text-right flex-shrink-0" title={combinedTitle}>{combinedLabel}</span>
+  <span class="text-xs text-steam-text-dim w-36 text-right flex-shrink-0 truncate" title={combinedTitle}>{combinedLabel}</span>
   <span class="text-xs w-16 text-right flex-shrink-0 {isFullyCompleted ? 'text-amber-400 font-medium' : isEarlyAccess ? 'text-blue-400 font-medium' : 'text-steam-text-dim'}">{hasAchievementData ? `${counts!.achieved}/${counts!.total}` : isEarlyAccess ? 'EA' : counts && counts.total > 0 ? `${counts.total}` : ''}</span>
   <span class="text-xs text-steam-text-dim w-20 text-right flex-shrink-0">{game.appId}</span>
 </div>

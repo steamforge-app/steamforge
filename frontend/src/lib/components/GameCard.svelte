@@ -3,7 +3,7 @@
   import { achievementCounts, playtimes, hltbCache } from '../stores/games';
   import { navigateToManager } from '../stores/app';
   import { settings } from '../stores/settings';
-  import { formatLastPlayed } from '../utils/format';
+  import { formatHoursMinutes } from '../utils/format';
   import { buildGameImageUrls } from '../utils/steam-images';
   import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime';
   import { showGameContextMenu } from '../utils/context-menu';
@@ -39,6 +39,7 @@
   let isOnToPlayList = $derived($toPlayList.has(game.appId));
   let playtimeHours = $derived($playtimes[String(game.appId)]);
   let hltbMain = $derived($hltbCache[String(game.appId)]?.main);
+  let hltbCompletionist = $derived($hltbCache[String(game.appId)]?.completionist);
 
   function handleToggleToPlay(e: Event) {
     e.stopPropagation();
@@ -171,17 +172,15 @@
         <h3 class="text-sm font-medium text-steam-text truncate group-hover:text-steam-primary transition-colors">
           {game.name || `App ${game.appId}`}
         </h3>
-        <div class="flex items-center gap-2 mt-0.5">
-          {#if game.lastPlayed}
-            <span class="text-xs text-steam-text-dim" title={new Date(game.lastPlayed * 1000).toLocaleDateString()}>
-              {formatLastPlayed(game.lastPlayed)}
-            </span>
-          {/if}
+        <div class="flex items-center gap-2 mt-0.5 flex-wrap">
           {#if playtimeHours}
-            <span class="text-xs text-sky-400">Played {Math.round(playtimeHours)}h</span>
+            <span class="text-xs text-sky-400">Played {formatHoursMinutes(playtimeHours)}</span>
           {/if}
           {#if hltbMain}
-            <span class="text-xs"><span class="text-white/35">Main</span> {Math.round(hltbMain)}h</span>
+            <span class="text-xs"><span class="text-white/35">Main</span> {formatHoursMinutes(hltbMain)}</span>
+          {/if}
+          {#if hltbCompletionist}
+            <span class="text-xs"><span class="text-white/35">100%</span> {formatHoursMinutes(hltbCompletionist)}</span>
           {/if}
         </div>
       </div>

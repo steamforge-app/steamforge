@@ -12,3 +12,12 @@ export function formatLastPlayed(unixTimestamp: number): string {
   if (daysSincePlayed < DAYS_PER_YEAR) return `${Math.floor(daysSincePlayed / DAYS_PER_MONTH)}mo ago`;
   return `${Math.floor(daysSincePlayed / DAYS_PER_YEAR)}y ago`;
 }
+
+export function formatHoursMinutes(hours: number): string {
+  const totalMinutes = Math.round(hours * 60);
+  const wholeHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (wholeHours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${wholeHours}h`;
+  return `${wholeHours}h ${minutes}m`;
+}
