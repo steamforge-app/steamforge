@@ -386,6 +386,9 @@ func (w *SteamWebAPI) fetchPlaytimeHours() (map[uint32]float64, error) {
 		}
 		hours[g.AppID] = h
 	}
+	if len(gamesList.Games.Games) == 0 {
+		slog.Warn("playtime fetch returned 0 games — profile's Game details privacy is likely not set to Public", "steamID", w.steamID)
+	}
 	return hours, nil
 }
 
