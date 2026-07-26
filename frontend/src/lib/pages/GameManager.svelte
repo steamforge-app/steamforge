@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
   import { selectedAppId, selectedGameName, selectedGameInstalled, addToast, isLoading, loadingMessage, navigateToPicker, profilePublic, gameComplete } from '../stores/app';
   import { achievements, achievementsLoading, cachePercents, applyCachedPercents, buildPercentLookup } from '../stores/achievements';
-  import { achievementCounts, navigableGames, type GameInfo } from '../stores/games';
+  import { achievementCounts, navigableGames, playtimes, hltbCache, type GameInfo } from '../stores/games';
   import { settings, updateSetting } from '../stores/settings';
   import AchievementList from '../components/AchievementList.svelte';
   import AchievementToolbar from '../components/AchievementToolbar.svelte';
@@ -122,6 +122,7 @@
     GetHLTBTimes(appId, gameName)
       .then(result => {
         if ($selectedAppId === appId) hltbTimes = result;
+        if (result) hltbCache.update(cache => ({ ...cache, [String(appId)]: result }));
       })
       .catch((e: unknown) => { console.error('HLTB fetch failed:', e); })
       .finally(() => {
@@ -135,6 +136,7 @@
     GetPlaytime(appId)
       .then(result => {
         if ($selectedAppId === appId) playtimeHours = result;
+        playtimes.update(cache => ({ ...cache, [String(appId)]: result }));
       })
       .catch(() => { /* private profile or no recorded playtime — omit silently */ });
   });
