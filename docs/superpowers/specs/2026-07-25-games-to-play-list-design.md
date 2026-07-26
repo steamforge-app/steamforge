@@ -69,8 +69,8 @@ export async function toggleToPlay(appId: number): Promise<void>  // optimistic 
 
 ## Error handling
 
-- `toggleToPlay` optimistically flips the local `Set`, then calls `SetToPlay`. On failure, revert the flip and show an error toast (`addToast(..., 'error')`) — same optimistic-then-revert pattern already used for achievement toggling in `GameManager.svelte`.
-- `loadToPlayList` failure: log and leave the set empty (nothing marked) rather than blocking the game grid from loading — the list is a convenience layer, not load-bearing for core functionality.
+- `SetToPlay` (both `settings.SetToPlay` and the `App.SetToPlay` Wails binding) always succeeds from the caller's perspective — a disk-write failure is logged server-side but never returned as an error. This is a deliberate choice: the list is a convenience layer, not load-bearing, and a rare local write failure (permissions, full disk) isn't worth surfacing as user-facing error UI. `toggleToPlay`'s revert-and-toast logic in `toplay.ts` stays as defensive handling for genuine IPC-layer failures (e.g. the Wails call itself rejecting), but is not expected to fire for a disk-write failure specifically.
+- `loadToPlayList` failure: log and leave the set empty (nothing marked) rather than blocking the game grid from loading — same convenience-layer rationale.
 
 ## Testing (manual, per project convention)
 
