@@ -25,6 +25,15 @@ export const searchQuery = writable<string>('');
 export const gamesLoading = writable<boolean>(false);
 export const achievementCounts = writable<Record<string, AchievementCount>>({});
 
+export interface HLTBCacheEntry {
+  main: number;
+  mainExtra: number;
+  completionist: number;
+}
+
+export const playtimes = writable<Record<string, number>>({});
+export const hltbCache = writable<Record<string, HLTBCacheEntry>>({});
+
 export const filteredGames = derived(
   [games, searchQuery, settings, achievementCounts, gameFilter, toPlayList],
   ([$games, $searchQuery, $settings, $achievementCounts, $gameFilter, $toPlayList]) => {
