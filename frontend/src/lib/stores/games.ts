@@ -1,6 +1,7 @@
 import { writable, derived } from 'svelte/store';
 import { settings } from './settings';
 import { gameFilter } from './app';
+import { toPlayList } from './toplay';
 
 export interface GameInfo {
   appId: number;
@@ -25,8 +26,8 @@ export const gamesLoading = writable<boolean>(false);
 export const achievementCounts = writable<Record<string, AchievementCount>>({});
 
 export const filteredGames = derived(
-  [games, searchQuery, settings, achievementCounts, gameFilter],
-  ([$games, $searchQuery, $settings, $achievementCounts, $gameFilter]) => {
+  [games, searchQuery, settings, achievementCounts, gameFilter, toPlayList],
+  ([$games, $searchQuery, $settings, $achievementCounts, $gameFilter, $toPlayList]) => {
     let result = $games;
 
     // Hide software/tools unless the setting is enabled
@@ -41,7 +42,9 @@ export const filteredGames = derived(
 
     const { sortBy, sortOrder } = $settings;
 
-    if ($gameFilter && $gameFilter !== 'all') {
+    if ($gameFilter === 'toPlay') {
+      result = result.filter(game => $toPlayList.has(game.appId));
+    } else if ($gameFilter && $gameFilter !== 'all') {
       result = result.filter(game => {
         const counts = $achievementCounts[String(game.appId)];
         if ($gameFilter === 'none') return !counts || counts.total === 0;

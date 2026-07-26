@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { games, gamesLoading, searchQuery, achievementCounts } from '../stores/games';
-  import { loadToPlayList } from '../stores/toplay';
+  import { loadToPlayList, toPlayList } from '../stores/toplay';
   import { currentPage, isConnected, steamId, personaName, addToast, isLoading, loadingMessage, scanning, scanProgress, profilePublic, gameFilter } from '../stores/app';
   import type { GameFilter } from '../stores/app';
   import { settings, updateSetting, updateSettingDebounced, loadSettings, setSortColumn } from '../stores/settings';
@@ -162,7 +162,7 @@
       searchFiltered = searchFiltered.filter(game => game.name.toLowerCase().includes(query));
     }
 
-    let incomplete = 0, perfected = 0, noAchievements = 0;
+    let incomplete = 0, perfected = 0, noAchievements = 0, toPlay = 0;
     for (const game of searchFiltered) {
       const counts = $achievementCounts[String(game.appId)];
       if (!counts || counts.total === 0) {
@@ -172,12 +172,14 @@
       } else {
         incomplete++;
       }
+      if ($toPlayList.has(game.appId)) toPlay++;
     }
     return {
       all: searchFiltered.length,
       incomplete,
       perfected,
       none: noAchievements,
+      toPlay,
     };
   });
 
@@ -186,6 +188,7 @@
     { value: 'incomplete', label: 'Incomplete' },
     { value: 'perfected', label: 'Perfected' },
     { value: 'none', label: 'No Achievements' },
+    { value: 'toPlay', label: 'Games to Play' },
   ];
 
   let activeFilterLabel = $derived(filterOptions.find(o => o.value === $gameFilter)?.label ?? 'All');
