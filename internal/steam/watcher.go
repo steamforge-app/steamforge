@@ -12,18 +12,20 @@ import (
 )
 
 // InstallWatcher monitors steamapps directories for appmanifest changes
-// and invokes a callback with the current set of installed app IDs.
+// and invokes a callback with the current set of installed app IDs and
+// each installed app's LastUpdated timestamp (for detecting game updates).
 type InstallWatcher struct {
 	watcher  *fsnotify.Watcher
-	callback func(installed map[uint32]bool)
+	callback func(installed map[uint32]bool, updateTimes map[uint32]uint32)
 	stopCh   chan struct{}
 	wg       sync.WaitGroup
 }
 
 // NewInstallWatcher creates a watcher that monitors all Steam library steamapps
-// directories for appmanifest file changes. When changes are detected (debounced
-// to ~1 second), it re-scans installed games and invokes the callback.
-func NewInstallWatcher(callback func(installed map[uint32]bool)) (*InstallWatcher, error) {
+// directories for appmanifest file changes — installs, uninstalls, and content
+// updates (Steam rewrites the manifest's LastUpdated field on patch/DLC
+// updates too). Changes are debounced to ~1 second before re-scanning.
+func NewInstallWatcher(callback func(installed map[uint32]bool, updateTimes map[uint32]uint32)) (*InstallWatcher, error) {
 	installPath, err := GetInstallPath()
 	if err != nil {
 		return nil, err
@@ -117,22 +119,24 @@ func (w *InstallWatcher) rescan() {
 	}
 
 	installed := make(map[uint32]bool, len(games))
+	updateTimes := make(map[uint32]uint32, len(games))
 	for _, g := range games {
 		installed[g.AppID] = true
+		updateTimes[g.AppID] = g.LastUpdated
 	}
 
 	slog.Info("install watcher: rescan complete", "installed", len(installed))
-	w.callback(installed)
+	w.callback(installed, updateTimes)
 }
 
 // isAppManifestEvent returns true if the event is for an appmanifest_*.acf file
-// and is a create, remove, or rename operation.
+// and is a create, remove, rename, or write (content update) operation.
 func isAppManifestEvent(event fsnotify.Event) bool {
 	base := filepath.Base(event.Name)
 	if !strings.HasPrefix(base, "appmanifest_") || !strings.HasSuffix(base, ".acf") {
 		return false
 	}
-	return event.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0
+	return event.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename|fsnotify.Write) != 0
 }
 
 // Close stops the watcher and releases resources.

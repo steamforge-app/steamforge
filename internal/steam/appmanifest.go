@@ -14,8 +14,9 @@ import (
 
 // InstalledGame represents a game found via local appmanifest scanning.
 type InstalledGame struct {
-	AppID uint32
-	Name  string
+	AppID       uint32
+	Name        string
+	LastUpdated uint32 // unix timestamp from the appmanifest, 0 if absent
 }
 
 // kvPairRe matches top-level "key" "value" lines in ACF/VDF files.
@@ -139,7 +140,7 @@ func scanAppTimeData(steamID uint64) map[uint32]appTimeEntry {
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // localconfig.vdf can be large
 
 	inApps := false
-	depth := 0       // nesting depth within the "apps" section
+	depth := 0 // nesting depth within the "apps" section
 	currentApp := uint32(0)
 
 	for scanner.Scan() {
@@ -262,9 +263,13 @@ func parseAppManifest(path string) (InstalledGame, error) {
 			g.AppID = uint32(id)
 		case "name":
 			g.Name = m[2]
+		case "lastupdated":
+			if ts, err := strconv.ParseUint(m[2], 10, 32); err == nil {
+				g.LastUpdated = uint32(ts)
+			}
 		}
-		if g.AppID != 0 && g.Name != "" {
-			break // got both fields, stop early
+		if g.AppID != 0 && g.Name != "" && g.LastUpdated != 0 {
+			break // got all fields we need, stop early
 		}
 	}
 	if err := scanner.Err(); err != nil {

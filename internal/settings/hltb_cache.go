@@ -13,16 +13,21 @@ type HLTBEntry struct {
 	Main          float32 `json:"main"`
 	MainExtra     float32 `json:"mainExtra"`
 	Completionist float32 `json:"completionist"`
-	// CheckedAt is a unix timestamp, only consulted when Main/MainExtra/Completionist
-	// are all zero (an explicit "no HLTB match found" record) to decide whether
-	// it's worth re-checking live.
+	// CheckedAt is a unix timestamp, consulted as a time-based freshness check
+	// when a more precise signal (GameUpdatedAt) isn't available — i.e. for
+	// "not found" entries, and for found entries on games that aren't installed.
 	CheckedAt int64 `json:"checkedAt"`
+	// GameUpdatedAt is the installed game's appmanifest LastUpdated timestamp
+	// at the time this entry was cached (0 if the game wasn't installed then).
+	// A found entry is re-checked once the game's current LastUpdated moves
+	// past this value, since HLTB times can change after updates/DLC.
+	GameUpdatedAt int64 `json:"gameUpdatedAt"`
 }
 
 var (
-	hltbMu      sync.RWMutex
-	hltbCache   map[uint32]HLTBEntry
-	hltbLoaded  bool
+	hltbMu         sync.RWMutex
+	hltbCache      map[uint32]HLTBEntry
+	hltbLoaded     bool
 	hltbFlushTimer *time.Timer
 )
 

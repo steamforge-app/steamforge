@@ -135,7 +135,6 @@ func (h *HLTBService) ensureToken() error {
 	return nil
 }
 
-
 type hltbSearchBody struct {
 	SearchType    string            `json:"searchType"`
 	SearchTerms   []string          `json:"searchTerms"`
@@ -155,14 +154,14 @@ type hltbSearchOptions struct {
 }
 
 type hltbGameOptions struct {
-	UserID        int            `json:"userId"`
-	Platform      string         `json:"platform"`
-	SortCategory  string         `json:"sortCategory"`
-	RangeCategory string         `json:"rangeCategory"`
-	Modifier      string         `json:"modifier"`
-	RangeTime     hltbRangeTime  `json:"rangeTime"`
-	Gameplay      hltbGameplay   `json:"gameplay"`
-	RangeYear     hltbRangeYear  `json:"rangeYear"`
+	UserID        int           `json:"userId"`
+	Platform      string        `json:"platform"`
+	SortCategory  string        `json:"sortCategory"`
+	RangeCategory string        `json:"rangeCategory"`
+	Modifier      string        `json:"modifier"`
+	RangeTime     hltbRangeTime `json:"rangeTime"`
+	Gameplay      hltbGameplay  `json:"gameplay"`
+	RangeYear     hltbRangeYear `json:"rangeYear"`
 }
 
 type hltbGameplay struct {
@@ -191,11 +190,11 @@ type hltbListOptions struct {
 }
 
 type hltbSearchResult struct {
-	GameID           int     `json:"game_id"`
-	GameName         string  `json:"game_name"`
-	GameplayMain     int     `json:"comp_main"`
+	GameID            int    `json:"game_id"`
+	GameName          string `json:"game_name"`
+	GameplayMain      int    `json:"comp_main"`
 	GameplayMainExtra int    `json:"comp_plus"`
-	GameplayComplete int     `json:"comp_100"`
+	GameplayComplete  int    `json:"comp_100"`
 }
 
 type hltbSearchResponse struct {
