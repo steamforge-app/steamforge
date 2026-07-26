@@ -447,6 +447,26 @@ func (a *App) GetHLTBTimes(appID uint32, gameName string) (*services.HLTBTimes, 
 	return times, nil
 }
 
+// GetAllPlaytimes returns hours played for every app with recorded playtime,
+// via a single parse of localconfig.vdf. Requires a connected Steam client.
+func (a *App) GetAllPlaytimes() (map[uint32]float64, error) {
+	a.mu.RLock()
+	client := a.steamClient
+	a.mu.RUnlock()
+	if client == nil {
+		return nil, errNotConnected
+	}
+
+	return steam.ScanPlaytimeHours(client.SteamID()), nil
+}
+
+// GetAllCachedHLTB returns every HLTB entry already cached to disk.
+// Never performs a live HLTB search — that only happens via GetHLTBTimes,
+// called when a game is actually opened.
+func (a *App) GetAllCachedHLTB() map[uint32]settings.HLTBEntry {
+	return settings.LoadHLTBCache()
+}
+
 func (a *App) GetSettings() settings.Settings {
 	return settings.Get()
 }

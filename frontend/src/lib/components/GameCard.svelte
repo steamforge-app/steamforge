@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { GameInfo } from '../stores/games';
-  import { achievementCounts } from '../stores/games';
+  import { achievementCounts, playtimes, hltbCache } from '../stores/games';
   import { navigateToManager } from '../stores/app';
   import { settings } from '../stores/settings';
   import { formatLastPlayed } from '../utils/format';
@@ -37,6 +37,8 @@
   let isEarlyAccess = $derived(counts?.earlyAccess === true);
   let isProtected = $derived(counts?.protected === true);
   let isOnToPlayList = $derived($toPlayList.has(game.appId));
+  let playtimeHours = $derived($playtimes[String(game.appId)]);
+  let hltbMain = $derived($hltbCache[String(game.appId)]?.main);
 
   function handleToggleToPlay(e: Event) {
     e.stopPropagation();
@@ -170,11 +172,16 @@
           {game.name || `App ${game.appId}`}
         </h3>
         <div class="flex items-center gap-2 mt-0.5">
-          <span class="text-xs text-steam-text-dim">AppID: {game.appId}</span>
           {#if game.lastPlayed}
             <span class="text-xs text-steam-text-dim" title={new Date(game.lastPlayed * 1000).toLocaleDateString()}>
               {formatLastPlayed(game.lastPlayed)}
             </span>
+          {/if}
+          {#if playtimeHours}
+            <span class="text-xs text-sky-400">Played {Math.round(playtimeHours)}h</span>
+          {/if}
+          {#if hltbMain}
+            <span class="text-xs"><span class="text-white/35">Main</span> {Math.round(hltbMain)}h</span>
           {/if}
         </div>
       </div>

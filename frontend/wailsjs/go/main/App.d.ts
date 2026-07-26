@@ -27,6 +27,10 @@ export function GetAchievementCounts():Promise<Record<number, settings.Achieveme
 
 export function GetAchievements():Promise<Array<models.Achievement>>;
 
+export function GetAllCachedHLTB():Promise<Record<number, settings.HLTBEntry>>;
+
+export function GetAllPlaytimes():Promise<Record<number, number>>;
+
 export function GetAppVersion():Promise<string>;
 
 export function GetDataDir():Promise<string>;

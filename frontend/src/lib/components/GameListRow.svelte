@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { GameInfo } from '../stores/games';
-  import { achievementCounts } from '../stores/games';
+  import { achievementCounts, playtimes, hltbCache } from '../stores/games';
   import { navigateToManager } from '../stores/app';
   import { formatLastPlayed } from '../utils/format';
   import { buildGameImageUrls } from '../utils/steam-images';
@@ -33,6 +33,18 @@
   let isFullyCompleted = $derived(hasAchievementData && counts!.achieved === counts!.total);
   let isEarlyAccess = $derived(counts?.earlyAccess && counts.total === 0);
   let isOnToPlayList = $derived($toPlayList.has(game.appId));
+  let playtimeHours = $derived($playtimes[String(game.appId)]);
+  let hltbMain = $derived($hltbCache[String(game.appId)]?.main);
+  let playtimeLabel = $derived(playtimeHours ? `${Math.round(playtimeHours)}h` : '');
+  let hltbLabel = $derived(hltbMain ? `${Math.round(hltbMain)}h` : '');
+  let combinedLabel = $derived(
+    playtimeLabel && hltbLabel ? `${playtimeLabel} / ${hltbLabel}` : playtimeLabel || hltbLabel
+  );
+  let combinedTitle = $derived(
+    [playtimeLabel && `Played ${playtimeLabel}`, hltbLabel && `Main story ${hltbLabel}`]
+      .filter(Boolean)
+      .join(' · ')
+  );
 
   function handleToggleToPlay(e: Event) {
     e.stopPropagation();
@@ -105,6 +117,7 @@
     <span class="text-sm text-steam-text truncate block">{game.name || `App ${game.appId}`}</span>
   </div>
   <span class="text-xs text-steam-text-dim w-16 text-right flex-shrink-0" title={game.lastPlayed ? new Date(game.lastPlayed * 1000).toLocaleDateString() : ''}>{game.lastPlayed ? formatLastPlayed(game.lastPlayed) : ''}</span>
+  <span class="text-xs text-steam-text-dim w-16 text-right flex-shrink-0" title={combinedTitle}>{combinedLabel}</span>
   <span class="text-xs w-16 text-right flex-shrink-0 {isFullyCompleted ? 'text-amber-400 font-medium' : isEarlyAccess ? 'text-blue-400 font-medium' : 'text-steam-text-dim'}">{hasAchievementData ? `${counts!.achieved}/${counts!.total}` : isEarlyAccess ? 'EA' : counts && counts.total > 0 ? `${counts.total}` : ''}</span>
   <span class="text-xs text-steam-text-dim w-20 text-right flex-shrink-0">{game.appId}</span>
 </div>
