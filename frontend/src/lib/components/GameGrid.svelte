@@ -71,8 +71,8 @@
     <button onclick={() => setSortColumn('name')} class="flex-1 min-w-0 text-left cursor-pointer transition-colors {$settings.sortBy === 'name' ? 'text-steam-primary' : 'text-steam-text-dim hover:text-steam-text'}">
       Name{sortIndicator('name')}
     </button>
-    <button onclick={() => setSortColumn('lastPlayed')} class="w-16 text-right flex-shrink-0 cursor-pointer transition-colors {$settings.sortBy === 'lastPlayed' ? 'text-steam-primary' : 'text-steam-text-dim hover:text-steam-text'}">
-      Played{sortIndicator('lastPlayed')}
+    <button onclick={() => setSortColumn('lastPlayed')} class="w-36 text-right flex-shrink-0 cursor-pointer transition-colors {$settings.sortBy === 'lastPlayed' ? 'text-steam-primary' : 'text-steam-text-dim hover:text-steam-text'}" title="Sorts by last played">
+      Time{sortIndicator('lastPlayed')}
     </button>
     <button onclick={() => setSortColumn('achievements')} class="w-16 text-right flex-shrink-0 cursor-pointer transition-colors {$settings.sortBy === 'achievements' ? 'text-steam-primary' : 'text-steam-text-dim hover:text-steam-text'}">
       Achs{sortIndicator('achievements')}
