@@ -495,6 +495,25 @@ func (a *App) FetchGlobalPercents(appID uint32) (map[string]float32, error) {
 	return percents, nil
 }
 
+// GetPlaytime returns this account's total hours played for a game, from the
+// public Steam Community profile. Returns an error if the profile's game
+// details aren't public or the game has no recorded playtime.
+func (a *App) GetPlaytime(appID uint32) (float64, error) {
+	a.mu.RLock()
+	client := a.steamClient
+	a.mu.RUnlock()
+	if client == nil {
+		return 0, errNotConnected
+	}
+
+	webAPI := services.NewSteamWebAPI(client.SteamID(), a.ctx)
+	hours, found := webAPI.GetPlaytimeHours(appID)
+	if !found {
+		return 0, fmt.Errorf("no playtime found for app %d", appID)
+	}
+	return hours, nil
+}
+
 // CheckGameEarlyAccess checks if a game is in Early Access via the Steam Store API
 // and caches the result in the achievement counts.
 func (a *App) CheckGameEarlyAccess(appID uint32) (bool, error) {

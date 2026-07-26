@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,9 +34,26 @@ type percentCacheEntry struct {
 
 const percentCacheTTL = 15 * time.Minute
 
+// playtimeCache caches this account's full hours-played list, keyed by
+// SteamID. The community endpoint always returns the whole owned-games
+// library in one call, so the parsed result is cached rather than re-fetched
+// per appID.
+var playtimeCache struct {
+	sync.RWMutex
+	entries map[uint64]playtimeCacheEntry
+}
+
+type playtimeCacheEntry struct {
+	hours     map[uint32]float64
+	fetchedAt time.Time
+}
+
+const playtimeCacheTTL = 10 * time.Minute
+
 func init() {
 	percentCache.entries = make(map[uint32]percentCacheEntry)
 	percentCache.refreshing = make(map[uint32]bool)
+	playtimeCache.entries = make(map[uint64]playtimeCacheEntry)
 }
 
 // SteamWebAPI fetches achievement data from the Steam community profile.
@@ -293,6 +311,82 @@ func (w *SteamWebAPI) fetchGlobalPercents(appID uint32) map[string]float32 {
 	}
 	slog.Info("global percents fetched", "appID", appID, "count", len(percents))
 	return percents
+}
+
+// GetPlaytimeHours returns this account's total hours played for a game,
+// from the public Steam Community profile. No API key needed, but the
+// profile's game details must be public. Returns found=false if the
+// profile is private or the game has no recorded playtime.
+func (w *SteamWebAPI) GetPlaytimeHours(appID uint32) (hours float64, found bool) {
+	playtimeCache.RLock()
+	entry, cached := playtimeCache.entries[w.steamID]
+	fresh := cached && time.Since(entry.fetchedAt) < playtimeCacheTTL
+	playtimeCache.RUnlock()
+
+	if fresh {
+		hours, found = entry.hours[appID]
+		return hours, found
+	}
+
+	fetched, err := w.fetchPlaytimeHours()
+	if err != nil {
+		slog.Warn("playtime fetch failed", "appID", appID, "error", err)
+		// Serve a stale cache rather than nothing on a transient failure.
+		if cached {
+			hours, found = entry.hours[appID]
+		}
+		return hours, found
+	}
+
+	playtimeCache.Lock()
+	playtimeCache.entries[w.steamID] = playtimeCacheEntry{hours: fetched, fetchedAt: time.Now()}
+	playtimeCache.Unlock()
+
+	hours, found = fetched[appID]
+	return hours, found
+}
+
+// fetchPlaytimeHours fetches this account's entire owned-games list and
+// parses hours played per appID. The community endpoint has no per-app
+// filter, so callers should cache the result rather than call this per game.
+func (w *SteamWebAPI) fetchPlaytimeHours() (map[uint32]float64, error) {
+	rawURL := fmt.Sprintf("https://steamcommunity.com/profiles/%d/games?xml=1", w.steamID)
+	req, err := http.NewRequestWithContext(w.ctx, "GET", rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	resp, err := w.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch games list: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("games endpoint returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("read games response: %w", err)
+	}
+
+	var gamesList xmlGamesList
+	if err := xml.Unmarshal(body, &gamesList); err != nil {
+		return nil, fmt.Errorf("parse games XML: %w", err)
+	}
+
+	hours := make(map[uint32]float64, len(gamesList.Games.Games))
+	for _, g := range gamesList.Games.Games {
+		if g.AppID == 0 || g.HoursOnRecord == "" {
+			continue
+		}
+		cleaned := strings.ReplaceAll(g.HoursOnRecord, ",", "")
+		h, err := strconv.ParseFloat(cleaned, 64)
+		if err != nil {
+			continue
+		}
+		hours[g.AppID] = h
+	}
+	return hours, nil
 }
 
 // ReleaseInfo holds release metadata for a game from the Steam Store API.

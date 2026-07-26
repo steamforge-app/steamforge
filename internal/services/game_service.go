@@ -133,9 +133,10 @@ type xmlGames struct {
 }
 
 type xmlGame struct {
-	AppID uint32 `xml:"appID"`
-	Name  string `xml:"name"`
-	Logo  string `xml:"logo"`
+	AppID         uint32 `xml:"appID"`
+	Name          string `xml:"name"`
+	Logo          string `xml:"logo"`
+	HoursOnRecord string `xml:"hoursOnRecord"`
 }
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}

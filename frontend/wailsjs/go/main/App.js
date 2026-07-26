@@ -70,6 +70,10 @@ export function GetPersonaName() {
   return window['go']['main']['App']['GetPersonaName']();
 }
 
+export function GetPlaytime(arg1) {
+  return window['go']['main']['App']['GetPlaytime'](arg1);
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }

@@ -39,6 +39,8 @@ export function GetLogContent():Promise<string>;
 
 export function GetPersonaName():Promise<string>;
 
+export function GetPlaytime(arg1:number):Promise<number>;
+
 export function GetSettings():Promise<settings.Settings>;
 
 export function IsConnected():Promise<boolean>;
