@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { games, gamesLoading, searchQuery, achievementCounts } from '../stores/games';
+  import { loadToPlayList } from '../stores/toplay';
   import { currentPage, isConnected, steamId, personaName, addToast, isLoading, loadingMessage, scanning, scanProgress, profilePublic, gameFilter } from '../stores/app';
   import type { GameFilter } from '../stores/app';
   import { settings, updateSetting, updateSettingDebounced, loadSettings, setSortColumn } from '../stores/settings';
@@ -34,6 +35,7 @@
       const counts = await GetAchievementCounts();
       achievementCounts.set(counts || {});
     } catch { /* cache not critical */ }
+    loadToPlayList();
     startScan();
   }
 
@@ -64,6 +66,7 @@
         const counts = await GetAchievementCounts();
         achievementCounts.set(counts || {});
       } catch { /* cache not critical */ }
+      loadToPlayList();
       if (!$scanning) {
         startScan();
       }
@@ -77,6 +80,7 @@
         try {
           GetAchievementCounts().then(counts => achievementCounts.set(counts || {}));
         } catch { /* cache not critical */ }
+        loadToPlayList();
         startScan();
       });
     } else {
