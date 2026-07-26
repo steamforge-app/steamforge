@@ -577,7 +577,7 @@ This is the one behavior change in this task: previously, switching Steam accoun
 
 - [ ] **Step 9: Call `FlushHLTBCache()` at shutdown**
 
-Find where the app's shutdown path already flushes other debounced caches (search for existing `Flush*Cache()` calls in `app.go`'s `shutdown()` — after Task 1 this is now in the trimmed `app.go`) and add `settings.FlushHLTBCache()` alongside them, so a just-fetched HLTB entry isn't lost if the app closes before its debounce timer fires.
+Correction from the plan's original assumption: `shutdown()` does NOT currently flush any debounced cache — the only existing `settings.FlushAchievementCache()` call lives in `finalizeScan()` (end of an achievement scan), a different lifecycle point, not app close. There's nothing to flush "alongside" in `shutdown()` yet. Add `settings.FlushHLTBCache()` directly into `shutdown()` (after Task 1 this is now in the trimmed `app.go`) as a new call, so a just-fetched HLTB entry isn't lost if the app closes before its debounce timer fires. Also add `settings.FlushPercentCache()` there for the same reason, since it has the same debounced-write gap and is otherwise unaffected by this task's other steps.
 
 - [ ] **Step 10: Build and verify**
 
