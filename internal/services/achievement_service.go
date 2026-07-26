@@ -31,6 +31,48 @@ func validateAchievementName(name string) error {
 	return nil
 }
 
+// achievementKeyStrings holds the CStrings needed to read achievement fields
+// via the SDK, so both loadFromSchema and loadFromAPI create them once each
+// instead of duplicating the pattern.
+type achievementKeyStrings struct {
+	name, desc, hidden, icon, iconGray *steam.CString
+}
+
+func newAchievementKeyStrings(includeHidden bool) achievementKeyStrings {
+	keys := achievementKeyStrings{
+		name:     steam.NewCString("name"),
+		desc:     steam.NewCString("desc"),
+		icon:     steam.NewCString("icon"),
+		iconGray: steam.NewCString("icon_gray"),
+	}
+	if includeHidden {
+		keys.hidden = steam.NewCString("hidden")
+	}
+	return keys
+}
+
+func (k achievementKeyStrings) free() {
+	k.name.Free()
+	k.desc.Free()
+	k.icon.Free()
+	k.iconGray.Free()
+	if k.hidden != nil {
+		k.hidden.Free()
+	}
+}
+
+// achievementSource is the minimal per-achievement data needed regardless of
+// whether it came from the local schema or the Steam API.
+type achievementSource struct {
+	ID          string
+	Name        string
+	Description string
+	IsHidden    bool
+	Permission  int
+	IconURL     string
+	IconGrayURL string
+}
+
 type AchievementService struct {
 	client *steam.Client
 	ctx    context.Context
@@ -153,18 +195,60 @@ func (s *AchievementService) LoadAchievements(appID uint32) ([]models.Achievemen
 	return achievements, nil
 }
 
+// buildAchievement populates a models.Achievement from a source-agnostic
+// description, resolving icons and unlock state via the SDK. Shared by
+// loadFromSchema and loadFromAPI so icon/unlock-state logic lives in one place.
+// The caller is responsible for creating and freeing csID.
+func (s *AchievementService) buildAchievement(src achievementSource, userStats *steam.ISteamUserStats, csID *steam.CString, keys achievementKeyStrings, iconBaseURL string) models.Achievement {
+	ach := models.Achievement{
+		ID:          src.ID,
+		Name:        src.Name,
+		Description: src.Description,
+		IsHidden:    src.IsHidden,
+		Permission:  src.Permission,
+		IconURL:     src.IconURL,
+		IconGrayURL: src.IconGrayURL,
+	}
+
+	// Fetch unlock state from SDK
+	achieved, unlockTime, ok := userStats.GetAchievementAndUnlockTimeCS(csID)
+	if ok {
+		ach.IsAchieved = achieved
+		ach.UnlockTime = unlockTime
+	}
+
+	// Fill in missing display name from SDK if schema didn't provide one
+	if ach.Name == "" {
+		if displayName := userStats.GetAchievementDisplayAttributeCS(csID, keys.name); displayName != "" {
+			ach.Name = displayName
+		}
+	}
+
+	// Fill in missing description from SDK if schema didn't provide one
+	if ach.Description == "" {
+		if desc := userStats.GetAchievementDisplayAttributeCS(csID, keys.desc); desc != "" {
+			ach.Description = desc
+		}
+	}
+
+	// Resolve icons from SDK if not already set
+	resolveIconsFromSDK(&ach, userStats, csID, keys.icon, keys.iconGray, iconBaseURL)
+
+	// Fetch achievement percent
+	percent, ok := userStats.GetAchievementAchievedPercentCS(csID)
+	if ok {
+		ach.Percent = percent
+	}
+
+	return ach
+}
+
 func (s *AchievementService) loadFromSchema(appID uint32, userStats *steam.ISteamUserStats, gameSchema *schema.GameSchema) []models.Achievement {
 	achievements := make([]models.Achievement, 0, len(gameSchema.Achievements))
 	iconBaseURL := fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/%d/", appID)
 
-	csKeyName := steam.NewCString("name")
-	csKeyDesc := steam.NewCString("desc")
-	csKeyIcon := steam.NewCString("icon")
-	csKeyIconGray := steam.NewCString("icon_gray")
-	defer csKeyName.Free()
-	defer csKeyDesc.Free()
-	defer csKeyIcon.Free()
-	defer csKeyIconGray.Free()
+	keys := newAchievementKeyStrings(false)
+	defer keys.free()
 
 	for _, def := range gameSchema.Achievements {
 		if def.ID == "" {
@@ -173,7 +257,7 @@ func (s *AchievementService) loadFromSchema(appID uint32, userStats *steam.IStea
 
 		csID := steam.NewCString(def.ID)
 
-		ach := models.Achievement{
+		src := achievementSource{
 			ID:          def.ID,
 			Name:        def.Name,
 			Description: def.Description,
@@ -181,37 +265,14 @@ func (s *AchievementService) loadFromSchema(appID uint32, userStats *steam.IStea
 			Permission:  def.Permission,
 		}
 
-		achieved, unlockTime, ok := userStats.GetAchievementAndUnlockTimeCS(csID)
-		if ok {
-			ach.IsAchieved = achieved
-			ach.UnlockTime = unlockTime
-		}
-
-		if ach.Name == "" {
-			if displayName := userStats.GetAchievementDisplayAttributeCS(csID, csKeyName); displayName != "" {
-				ach.Name = displayName
-			}
-		}
-		if ach.Description == "" {
-			if desc := userStats.GetAchievementDisplayAttributeCS(csID, csKeyDesc); desc != "" {
-				ach.Description = desc
-			}
-		}
-
 		if def.IconNormal != "" {
-			ach.IconURL = iconBaseURL + def.IconNormal
+			src.IconURL = iconBaseURL + def.IconNormal
 		}
 		if def.IconLocked != "" {
-			ach.IconGrayURL = iconBaseURL + def.IconLocked
+			src.IconGrayURL = iconBaseURL + def.IconLocked
 		}
 
-		resolveIconsFromSDK(&ach, userStats, csID, csKeyIcon, csKeyIconGray, iconBaseURL)
-
-		percent, ok := userStats.GetAchievementAchievedPercentCS(csID)
-		if ok {
-			ach.Percent = percent
-		}
-
+		ach := s.buildAchievement(src, userStats, csID, keys, iconBaseURL)
 		csID.Free()
 		achievements = append(achievements, ach)
 	}
@@ -223,16 +284,8 @@ func (s *AchievementService) loadFromAPI(appID uint32, userStats *steam.ISteamUs
 	achievements := make([]models.Achievement, 0, numAchievements)
 	iconBaseURL := fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/%d/", appID)
 
-	csKeyName := steam.NewCString("name")
-	csKeyDesc := steam.NewCString("desc")
-	csKeyHidden := steam.NewCString("hidden")
-	csKeyIcon := steam.NewCString("icon")
-	csKeyIconGray := steam.NewCString("icon_gray")
-	defer csKeyName.Free()
-	defer csKeyDesc.Free()
-	defer csKeyHidden.Free()
-	defer csKeyIcon.Free()
-	defer csKeyIconGray.Free()
+	keys := newAchievementKeyStrings(true)
+	defer keys.free()
 
 	schemaMap := make(map[string]*schema.AchievementDefinition)
 	if gameSchema != nil {
@@ -249,45 +302,36 @@ func (s *AchievementService) loadFromAPI(appID uint32, userStats *steam.ISteamUs
 
 		csID := steam.NewCString(name)
 
-		achieved, unlockTime, _ := userStats.GetAchievementAndUnlockTimeCS(csID)
-		displayName := userStats.GetAchievementDisplayAttributeCS(csID, csKeyName)
-		description := userStats.GetAchievementDisplayAttributeCS(csID, csKeyDesc)
-		hidden := userStats.GetAchievementDisplayAttributeCS(csID, csKeyHidden) == "1"
+		displayName := userStats.GetAchievementDisplayAttributeCS(csID, keys.name)
+		description := userStats.GetAchievementDisplayAttributeCS(csID, keys.desc)
+		hidden := userStats.GetAchievementDisplayAttributeCS(csID, keys.hidden) == "1"
 
-		ach := models.Achievement{
+		src := achievementSource{
 			ID:          name,
 			Name:        displayName,
 			Description: description,
-			IsAchieved:  achieved,
-			UnlockTime:  unlockTime,
 			IsHidden:    hidden,
 		}
 
 		if def, ok := schemaMap[name]; ok {
-			if def.Name != "" && ach.Name == "" {
-				ach.Name = def.Name
+			if def.Name != "" && src.Name == "" {
+				src.Name = def.Name
 			}
-			if def.Description != "" && ach.Description == "" {
-				ach.Description = def.Description
+			if def.Description != "" && src.Description == "" {
+				src.Description = def.Description
 			}
-			ach.IsHidden = def.IsHidden
-			ach.Permission = def.Permission
+			src.IsHidden = def.IsHidden
+			src.Permission = def.Permission
 
 			if def.IconNormal != "" {
-				ach.IconURL = iconBaseURL + def.IconNormal
+				src.IconURL = iconBaseURL + def.IconNormal
 			}
 			if def.IconLocked != "" {
-				ach.IconGrayURL = iconBaseURL + def.IconLocked
+				src.IconGrayURL = iconBaseURL + def.IconLocked
 			}
 		}
 
-		resolveIconsFromSDK(&ach, userStats, csID, csKeyIcon, csKeyIconGray, iconBaseURL)
-
-		percent, ok := userStats.GetAchievementAchievedPercentCS(csID)
-		if ok {
-			ach.Percent = percent
-		}
-
+		ach := s.buildAchievement(src, userStats, csID, keys, iconBaseURL)
 		csID.Free()
 		achievements = append(achievements, ach)
 	}
@@ -357,23 +401,25 @@ func (s *AchievementService) GetAchievements() []models.Achievement {
 	return s.achievements
 }
 
-func (s *AchievementService) SetAchievement(name string) (bool, error) {
+// setAchievementState is shared by SetAchievement and ClearAchievement —
+// both do the same validation, SDK call, and in-memory update, differing
+// only in the target state.
+func (s *AchievementService) setAchievementState(name string, achieved bool, sdkCall func(string) bool, operation string) (bool, error) {
 	if err := validateAchievementName(name); err != nil {
 		return false, err
 	}
-	userStats := s.client.UserStats()
-	if userStats == nil {
-		return false, errors.New("UserStats not available")
-	}
 
-	ok := s.retrySDKCall(func() bool { return userStats.SetAchievement(name) })
-	slog.Info("set achievement", "name", name, "ok", ok)
+	ok := s.retrySDKCall(func() bool { return sdkCall(name) })
+	slog.Info(operation, "name", name, "ok", ok)
 
 	if ok {
 		s.mu.Lock()
 		for i := range s.achievements {
 			if s.achievements[i].ID == name {
-				s.achievements[i].IsAchieved = true
+				s.achievements[i].IsAchieved = achieved
+				if !achieved {
+					s.achievements[i].UnlockTime = 0
+				}
 				break
 			}
 		}
@@ -383,31 +429,20 @@ func (s *AchievementService) SetAchievement(name string) (bool, error) {
 	return ok, nil
 }
 
-func (s *AchievementService) ClearAchievement(name string) (bool, error) {
-	if err := validateAchievementName(name); err != nil {
-		return false, err
-	}
+func (s *AchievementService) SetAchievement(name string) (bool, error) {
 	userStats := s.client.UserStats()
 	if userStats == nil {
 		return false, errors.New("UserStats not available")
 	}
+	return s.setAchievementState(name, true, userStats.SetAchievement, "set achievement")
+}
 
-	ok := s.retrySDKCall(func() bool { return userStats.ClearAchievement(name) })
-	slog.Info("clear achievement", "name", name, "ok", ok)
-
-	if ok {
-		s.mu.Lock()
-		for i := range s.achievements {
-			if s.achievements[i].ID == name {
-				s.achievements[i].IsAchieved = false
-				s.achievements[i].UnlockTime = 0
-				break
-			}
-		}
-		s.mu.Unlock()
+func (s *AchievementService) ClearAchievement(name string) (bool, error) {
+	userStats := s.client.UserStats()
+	if userStats == nil {
+		return false, errors.New("UserStats not available")
 	}
-
-	return ok, nil
+	return s.setAchievementState(name, false, userStats.ClearAchievement, "clear achievement")
 }
 
 // retrySDKCall retries an SDK operation that may fail transiently right after
@@ -423,7 +458,10 @@ func (s *AchievementService) retrySDKCall(call func() bool) bool {
 	return false
 }
 
-func (s *AchievementService) SetAllAchievements() (int, error) {
+// updateAllAchievements is shared by SetAllAchievements and ClearAllAchievements —
+// both check permissions and filter by state, but differ in which state to target
+// and which SDK operation to call.
+func (s *AchievementService) updateAllAchievements(achieved bool, sdkCall func(string) bool, shouldUpdate func(bool) bool, operation string) (int, error) {
 	userStats := s.client.UserStats()
 	if userStats == nil {
 		return 0, errors.New("UserStats not available")
@@ -432,18 +470,32 @@ func (s *AchievementService) SetAllAchievements() (int, error) {
 	count := 0
 	s.mu.Lock()
 	for i := range s.achievements {
-		if s.achievements[i].Permission > 0 || s.achievements[i].IsAchieved {
+		// Skip protected achievements and those already in the target state
+		if s.achievements[i].Permission > 0 || !shouldUpdate(s.achievements[i].IsAchieved) {
 			continue
 		}
-		if userStats.SetAchievement(s.achievements[i].ID) {
-			s.achievements[i].IsAchieved = true
+		if sdkCall(s.achievements[i].ID) {
+			s.achievements[i].IsAchieved = achieved
+			if !achieved {
+				s.achievements[i].UnlockTime = 0
+			}
 			count++
 		}
 	}
 	s.mu.Unlock()
 
-	slog.Info("set all achievements", "count", count)
+	slog.Info(operation, "count", count)
 	return count, nil
+}
+
+func (s *AchievementService) SetAllAchievements() (int, error) {
+	userStats := s.client.UserStats()
+	if userStats == nil {
+		return 0, errors.New("UserStats not available")
+	}
+	return s.updateAllAchievements(true, userStats.SetAchievement, func(isAchieved bool) bool {
+		return !isAchieved
+	}, "set all achievements")
 }
 
 func (s *AchievementService) ClearAllAchievements() (int, error) {
@@ -451,23 +503,9 @@ func (s *AchievementService) ClearAllAchievements() (int, error) {
 	if userStats == nil {
 		return 0, errors.New("UserStats not available")
 	}
-
-	count := 0
-	s.mu.Lock()
-	for i := range s.achievements {
-		if s.achievements[i].Permission > 0 || !s.achievements[i].IsAchieved {
-			continue
-		}
-		if userStats.ClearAchievement(s.achievements[i].ID) {
-			s.achievements[i].IsAchieved = false
-			s.achievements[i].UnlockTime = 0
-			count++
-		}
-	}
-	s.mu.Unlock()
-
-	slog.Info("clear all achievements", "count", count)
-	return count, nil
+	return s.updateAllAchievements(false, userStats.ClearAchievement, func(isAchieved bool) bool {
+		return isAchieved
+	}, "clear all achievements")
 }
 
 func (s *AchievementService) StoreStats() (bool, error) {
