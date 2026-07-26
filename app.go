@@ -512,9 +512,12 @@ func (a *App) FetchGlobalPercents(appID uint32) (map[string]float32, error) {
 	return percents, nil
 }
 
-// GetPlaytime returns this account's total hours played for a game, from the
-// public Steam Community profile. Returns an error if the profile's game
-// details aren't public or the game has no recorded playtime.
+// GetPlaytime returns this account's total hours played for a game, read
+// from the local Steam client's localconfig.vdf. Steam no longer exposes
+// this over any public, unauthenticated network endpoint, so this reads the
+// same local file Steam's own client uses (steam.ScanLastPlayed already
+// reads this file for LastPlayed). Returns an error if the game has no
+// recorded playtime.
 func (a *App) GetPlaytime(appID uint32) (float64, error) {
 	a.mu.RLock()
 	client := a.steamClient
@@ -523,8 +526,7 @@ func (a *App) GetPlaytime(appID uint32) (float64, error) {
 		return 0, errNotConnected
 	}
 
-	webAPI := services.NewSteamWebAPI(client.SteamID(), a.ctx)
-	hours, found := webAPI.GetPlaytimeHours(appID)
+	hours, found := steam.ScanPlaytimeHours(client.SteamID())[appID]
 	if !found {
 		return 0, fmt.Errorf("no playtime found for app %d", appID)
 	}

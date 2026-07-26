@@ -104,12 +104,20 @@ func collectLibraryPaths(installPath string) []string {
 	return paths
 }
 
-// ScanLastPlayed reads LastPlayed timestamps from the user's localconfig.vdf.
-// Returns a map of appID -> unix timestamp.
-func ScanLastPlayed(steamID uint64) map[uint32]uint32 {
+// appTimeEntry holds the per-app fields scanned from localconfig.vdf's
+// "apps" section in a single pass.
+type appTimeEntry struct {
+	LastPlayed      uint32
+	PlaytimeMinutes uint32
+}
+
+// scanAppTimeData parses the user's localconfig.vdf once and returns
+// LastPlayed and Playtime (total minutes) for every app that has them.
+// Both ScanLastPlayed and ScanPlaytimeHours are thin views over this.
+func scanAppTimeData(steamID uint64) map[uint32]appTimeEntry {
 	installPath, err := GetInstallPath()
 	if err != nil {
-		slog.Warn("cannot read last played: install path", "error", err)
+		slog.Warn("cannot read app time data: install path", "error", err)
 		return nil
 	}
 
@@ -125,8 +133,8 @@ func ScanLastPlayed(steamID uint64) map[uint32]uint32 {
 	defer f.Close()
 
 	// Simple state machine to parse the nested text VDF.
-	// We're looking for entries under "apps" -> "<appid>" -> "LastPlayed" "<timestamp>"
-	result := make(map[uint32]uint32)
+	// We're looking for entries under "apps" -> "<appid>" -> "LastPlayed"/"Playtime"
+	result := make(map[uint32]appTimeEntry)
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // localconfig.vdf can be large
 
@@ -177,10 +185,18 @@ func ScanLastPlayed(steamID uint64) map[uint32]uint32 {
 		// Key-value pair
 		if inApps && depth == 2 && currentApp > 0 {
 			key := strings.ToLower(m[1])
-			if key == "lastplayed" {
-				ts, err := strconv.ParseUint(m[2], 10, 32)
-				if err == nil && ts > 0 {
-					result[currentApp] = uint32(ts)
+			switch key {
+			case "lastplayed":
+				if ts, err := strconv.ParseUint(m[2], 10, 32); err == nil && ts > 0 {
+					entry := result[currentApp]
+					entry.LastPlayed = uint32(ts)
+					result[currentApp] = entry
+				}
+			case "playtime":
+				if minutes, err := strconv.ParseUint(m[2], 10, 32); err == nil {
+					entry := result[currentApp]
+					entry.PlaytimeMinutes = uint32(minutes)
+					result[currentApp] = entry
 				}
 			}
 		}
@@ -190,7 +206,34 @@ func ScanLastPlayed(steamID uint64) map[uint32]uint32 {
 		slog.Warn("error reading localconfig.vdf", "error", err)
 	}
 
+	return result
+}
+
+// ScanLastPlayed reads LastPlayed timestamps from the user's localconfig.vdf.
+// Returns a map of appID -> unix timestamp.
+func ScanLastPlayed(steamID uint64) map[uint32]uint32 {
+	data := scanAppTimeData(steamID)
+	result := make(map[uint32]uint32, len(data))
+	for appID, entry := range data {
+		if entry.LastPlayed > 0 {
+			result[appID] = entry.LastPlayed
+		}
+	}
 	slog.Info("scanned last played times", "count", len(result))
+	return result
+}
+
+// ScanPlaytimeHours reads total playtime from the user's localconfig.vdf.
+// Returns a map of appID -> hours played, for apps with any recorded time.
+func ScanPlaytimeHours(steamID uint64) map[uint32]float64 {
+	data := scanAppTimeData(steamID)
+	result := make(map[uint32]float64, len(data))
+	for appID, entry := range data {
+		if entry.PlaytimeMinutes > 0 {
+			result[appID] = float64(entry.PlaytimeMinutes) / 60
+		}
+	}
+	slog.Info("scanned playtimes", "count", len(result))
 	return result
 }
 
