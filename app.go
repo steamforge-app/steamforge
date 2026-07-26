@@ -401,6 +401,23 @@ func (a *App) GetAchievementCounts() map[uint32]settings.AchievementCount {
 	return settings.LoadAchievementCache()
 }
 
+// GetToPlayList returns the appIDs currently on the user's "games to play" list.
+// Pure local state — no Steam client connection required.
+func (a *App) GetToPlayList() []uint32 {
+	list := settings.LoadToPlayList()
+	appIDs := make([]uint32, 0, len(list))
+	for appID := range list {
+		appIDs = append(appIDs, appID)
+	}
+	return appIDs
+}
+
+// SetToPlay adds or removes a game from the "games to play" list.
+func (a *App) SetToPlay(appID uint32, want bool) error {
+	settings.SetToPlay(appID, want)
+	return nil
+}
+
 // GetHLTBTimes returns completion time estimates for a game from HowLongToBeat.
 // Returns cached data immediately if available; otherwise fetches live and caches the result.
 func (a *App) GetHLTBTimes(appID uint32, gameName string) (*services.HLTBTimes, error) {

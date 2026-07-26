@@ -43,6 +43,8 @@ export function GetPlaytime(arg1:number):Promise<number>;
 
 export function GetSettings():Promise<settings.Settings>;
 
+export function GetToPlayList():Promise<Array<number>>;
+
 export function IsConnected():Promise<boolean>;
 
 export function LoadAchievements(arg1:number):Promise<Array<models.Achievement>>;
@@ -62,6 +64,8 @@ export function SearchGames(arg1:string):Promise<Array<models.GameInfo>>;
 export function SetAchievement(arg1:string):Promise<boolean>;
 
 export function SetAllAchievements():Promise<number>;
+
+export function SetToPlay(arg1:number,arg2:boolean):Promise<void>;
 
 export function StopAchievementScan():Promise<void>;
 

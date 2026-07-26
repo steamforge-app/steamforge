@@ -78,6 +78,10 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function GetToPlayList() {
+  return window['go']['main']['App']['GetToPlayList']();
+}
+
 export function IsConnected() {
   return window['go']['main']['App']['IsConnected']();
 }
@@ -116,6 +120,10 @@ export function SetAchievement(arg1) {
 
 export function SetAllAchievements() {
   return window['go']['main']['App']['SetAllAchievements']();
+}
+
+export function SetToPlay(arg1, arg2) {
+  return window['go']['main']['App']['SetToPlay'](arg1, arg2);
 }
 
 export function StopAchievementScan() {
