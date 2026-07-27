@@ -15,6 +15,7 @@
   } from '../../../wailsjs/go/main/App';
   import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime';
   import { buildHeroImageUrls } from '../utils/steam-images';
+  import { updateAchievementIsAchieved, batchUpdateAchievements } from '../utils/achievement-updates';
 
   let confirmDialog = $state<{ title: string; message: string; confirmText?: string; action: () => void } | null>(null);
   let dirty = $state(false);
@@ -406,9 +407,7 @@
           addToast(`Failed to ${achieved ? 'unlock' : 'lock'} achievement`, 'error');
           return;
         }
-        achievements.update(list => list.map(item =>
-          item.id === id ? { ...item, isAchieved: achieved, unlockTime: achieved ? Math.floor(Date.now() / 1000) : 0 } : item
-        ));
+        achievements.update(list => updateAchievementIsAchieved(list, id, achieved));
         await autoStoreIfEnabled();
         const name = $achievements.find(a => a.id === id)?.name || id;
         const actionLabel = achieved ? 'Unlocked' : 'Locked';
@@ -421,9 +420,7 @@
               } else {
                 await SetAchievement(id);
               }
-              achievements.update(list => list.map(item =>
-                item.id === id ? { ...item, isAchieved: !achieved, unlockTime: !achieved ? Math.floor(Date.now() / 1000) : 0 } : item
-              ));
+              achievements.update(list => updateAchievementIsAchieved(list, id, !achieved));
               await autoStoreIfEnabled();
             } catch (e: any) {
               addToast(`Undo failed: ${e.message || e}`, 'error');
@@ -435,9 +432,7 @@
       }
     } else {
       // Defer SDK calls — only update the UI
-      achievements.update(list => list.map(item =>
-        item.id === id ? { ...item, isAchieved: achieved, unlockTime: achieved ? item.unlockTime : 0 } : item
-      ));
+      achievements.update(list => updateAchievementIsAchieved(list, id, achieved));
     }
   }
 
@@ -495,9 +490,7 @@
       }
     }
     const editableSet = new Set(editable);
-    achievements.update(list => list.map(item =>
-      editableSet.has(item.id) ? { ...item, isAchieved: true } : item
-    ));
+    achievements.update(list => batchUpdateAchievements(list, editableSet, true));
     const label = skipped > 0 ? `Unlocked ${editable.length} achievements (${skipped} protected, skipped)` : `Unlocked ${editable.length} achievements`;
     addToast(label, 'success');
     selectedIds = new Set();
@@ -527,9 +520,7 @@
       }
     }
     const editableSet = new Set(editable);
-    achievements.update(list => list.map(item =>
-      editableSet.has(item.id) ? { ...item, isAchieved: false, unlockTime: 0 } : item
-    ));
+    achievements.update(list => batchUpdateAchievements(list, editableSet, false));
     const label = skipped > 0 ? `Locked ${editable.length} achievements (${skipped} protected, skipped)` : `Locked ${editable.length} achievements`;
     addToast(label, 'success');
     selectedIds = new Set();
