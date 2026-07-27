@@ -15,7 +15,8 @@
   } from '../../../wailsjs/go/main/App';
   import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime';
   import { buildHeroImageUrls } from '../utils/steam-images';
-  import { updateAchievementIsAchieved, batchUpdateAchievements } from '../utils/achievement-updates';
+  import { updateAchievementIsAchieved, batchUpdateAchievements, lockAllEditableAchievements } from '../utils/achievement-updates';
+  import { createPercentManager } from '../utils/achievement-percents';
 
   let confirmDialog = $state<{ title: string; message: string; confirmText?: string; action: () => void } | null>(null);
   let dirty = $state(false);
@@ -116,50 +117,14 @@
     gameComplete.set(achievedCount === totalCount && totalCount > 0);
   });
 
-  let percentRetryTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function stopPercentFetch() {
-    if (percentRetryTimer) {
-      clearTimeout(percentRetryTimer);
-      percentRetryTimer = null;
-    }
-  }
-
-  // Fetches percents immediately — no artificial delay. The backend already
-  // returns a cached value instantly (fresh or stale) when one exists, and
-  // refreshes stale values in the background (see the "percents-updated"
-  // listener in App.svelte). Retries here only cover genuine fetch failures.
-  function fetchPercents(appId: number) {
-    stopPercentFetch();
-    let attempt = 0;
-    const maxAttempts = 2; // ~2s, 4s
-
-    async function attemptFetch() {
-      try {
-        const percents = await FetchGlobalPercents(appId);
-        if (appId !== $selectedAppId) return; // navigated away — drop the result
-        if (percents && Object.keys(percents).length > 0) {
-          const lookup = buildPercentLookup(percents);
-          achievements.update(list => {
-            const updated = list.map(achievement => {
-              if (achievement.percent !== 0) return achievement;
-              const percent = lookup.get(achievement.id.toLowerCase());
-              return percent ? { ...achievement, percent } : achievement;
-            });
-            cachePercents(appId, updated);
-            return updated;
-          });
-        }
-      } catch {
-        attempt++;
-        if (attempt < maxAttempts) {
-          percentRetryTimer = setTimeout(attemptFetch, 2000 * attempt);
-        }
-      }
-    }
-
-    attemptFetch();
-  }
+  const percentMgr = createPercentManager(
+    achievements,
+    cachePercents,
+    buildPercentLookup,
+    FetchGlobalPercents,
+    () => $selectedAppId
+  );
+  const { fetchPercents, stopFetch: stopPercentFetch } = percentMgr;
 
   let loadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -260,10 +225,9 @@
             return;
           }
         } catch {
-          // Community unavailable — fall through to Steam client
+          // Community unavailable
         }
       }
-      // Community unavailable — connect to Steam client unless protected
       if ($settings.protectLastPlayed) {
         achievements.set([]);
         snapshotState();
@@ -279,7 +243,6 @@
           fetchPercents($selectedAppId);
           gameConnected = true;
         } catch (e: any) {
-          // Game may not support achievements — disconnect to avoid staying "in-game"
           try { await DisconnectGame(); } catch {}
           achievements.set([]);
           snapshotState();
@@ -309,8 +272,7 @@
       const result = await LoadAchievements($selectedAppId);
       const loaded = result || [];
 
-      // Capture the Steam-side state directly from the loaded data (not via
-      // $achievements) so the diff in handleStore has the true baseline.
+      // Snapshot Steam-side state for diff detection in handleStore
       const steamSnapshot = new Map<string, boolean>();
       for (const achievement of loaded) {
         steamSnapshot.set(achievement.id, achievement.isAchieved);
@@ -319,7 +281,7 @@
       achievements.set(loaded);
       gameConnected = true;
 
-      // Re-apply pending changes so handleStore can detect them
+      // Re-apply pending changes
       if (pendingChanges.size > 0) {
         achievements.update(list => list.map(item => {
           const pending = pendingChanges.get(item.id);
@@ -330,8 +292,6 @@
         }));
       }
 
-      // Set originalState to the Steam-saved state (not the pending state),
-      // so handleStore's diff correctly detects all changes to apply.
       originalState = steamSnapshot;
 
       return true;
@@ -391,8 +351,8 @@
         addToast(`Failed to update achievement: ${e.message || e}`, 'error');
       }
     } else {
-      // Defer SDK calls — only update the UI
-      achievements.update(list => updateAchievementIsAchieved(list, id, achieved));
+      // Defer SDK calls — only update the UI (preserve existing unlock times since no real API call occurred)
+      achievements.update(list => updateAchievementIsAchieved(list, id, achieved, 'preserve'));
     }
   }
 
@@ -450,7 +410,7 @@
       }
     }
     const editableSet = new Set(editable);
-    achievements.update(list => batchUpdateAchievements(list, editableSet, true));
+    achievements.update(list => batchUpdateAchievements(list, editableSet, true, 'ignore'));
     const label = skipped > 0 ? `Unlocked ${editable.length} achievements (${skipped} protected, skipped)` : `Unlocked ${editable.length} achievements`;
     addToast(label, 'success');
     selectedIds = new Set();
@@ -500,7 +460,7 @@
           if (!await ensureConnected()) return;
           try {
             const count = await ClearAllAchievements();
-            achievements.update(list => list.map(item => item.permission > 0 ? item : { ...item, isAchieved: false, unlockTime: 0 }));
+            achievements.update(lockAllEditableAchievements);
             addToast(`Locked ${count} achievements`, 'success');
             await autoStoreIfEnabled();
           } catch (e: any) {
@@ -508,7 +468,7 @@
           }
         } else {
           const count = $achievements.filter(a => a.isAchieved && !a.permission).length;
-          achievements.update(list => list.map(item => item.permission > 0 ? item : { ...item, isAchieved: false, unlockTime: 0 }));
+          achievements.update(lockAllEditableAchievements);
           addToast(`Locked ${count} achievements`, 'success');
         }
       }
@@ -563,11 +523,7 @@
         addToast('Changes saved', 'success');
         snapshotState();
         syncAchievementCounts();
-        // Stay connected — disconnecting here forces a full Steam client
-        // reconnect (and a fresh stats round-trip) on the very next save,
-        // which can race Steam's own settling of the values we just stored
-        // and read back stale locked states. goBack()/performGameSwitch()
-        // already disconnect once you actually leave the game.
+        // Keep connection open to avoid reconnect race conditions
       } else {
         addToast('Store returned false - changes may not have been saved', 'error');
       }
