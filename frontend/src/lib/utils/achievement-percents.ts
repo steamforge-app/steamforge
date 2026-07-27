@@ -25,6 +25,10 @@ export function createPercentManager(
     }
   }
 
+  // Fetches percents immediately — no artificial delay. The backend already
+  // returns a cached value instantly (fresh or stale) when one exists, and
+  // refreshes stale values in the background (see the "percents-updated"
+  // listener in App.svelte). Retries here only cover genuine fetch failures.
   function fetchPercents(appId: number) {
     stopFetch();
     let attempt = 0;
