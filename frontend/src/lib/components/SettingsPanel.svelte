@@ -14,9 +14,6 @@
   let activeTab = $state<'general' | 'display' | 'advanced'>('general');
 
   let appVersion = $state('');
-  let updateStatus = $state<'idle' | 'checking' | 'up-to-date' | 'update-available'>('idle');
-  let latestVersion = $state('');
-  let downloadUrl = $state('');
 
   GetAppVersion().then(version => appVersion = version).catch(() => {});
 
@@ -59,9 +56,6 @@
 {:else}
   <AdvancedSettingsTab
     {appVersion}
-    updateStatus={updateStatus}
-    latestVersion={latestVersion}
-    downloadUrl={downloadUrl}
     {onclose}
   />
 {/if}

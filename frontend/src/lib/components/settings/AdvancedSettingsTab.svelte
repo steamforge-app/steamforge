@@ -10,22 +10,19 @@
 
   interface Props {
     appVersion: string;
-    updateStatus: 'idle' | 'checking' | 'up-to-date' | 'update-available';
-    latestVersion: string;
-    downloadUrl: string;
     onclose: () => void;
   }
 
-  let { appVersion, updateStatus: updateStatusProp, latestVersion: latestVersionProp, downloadUrl: downloadUrlProp, onclose }: Props = $props();
+  let { appVersion, onclose }: Props = $props();
 
   let logViewerOpen = $state(false);
   let logContent = $state('');
   let logCopied = $state(false);
 
-  // Local state for update checking - initialized from props but can be updated independently
-  let localUpdateStatus = $state(updateStatusProp);
-  let localLatestVersion = $state(latestVersionProp);
-  let localDownloadUrl = $state(downloadUrlProp);
+  // Local state for update checking
+  let localUpdateStatus = $state<'idle' | 'checking' | 'up-to-date' | 'update-available'>('idle');
+  let localLatestVersion = $state('');
+  let localDownloadUrl = $state('');
 
   function handleRescan() {
     onclose();
