@@ -76,8 +76,14 @@ func (c *JSONCache[K, V]) Set(key K, value V) {
 
 // Flush forces an immediate write, canceling any pending debounce timer.
 // Safe to call even when flushDelay is 0 (no-op timer state, still writes).
+// If the cache has been reset (data is nil), this is a no-op to prevent writing
+// stale data for a different user during concurrent account switches.
 func (c *JSONCache[K, V]) Flush() {
 	c.mu.Lock()
+	if c.data == nil {
+		c.mu.Unlock()
+		return
+	}
 	if c.flushTimer != nil {
 		c.flushTimer.Stop()
 		c.flushTimer = nil
@@ -85,6 +91,87 @@ func (c *JSONCache[K, V]) Flush() {
 	data := c.snapshotLocked()
 	c.mu.Unlock()
 	c.writeToDisk(data)
+}
+
+// ReplaceAll replaces the entire cache contents with a new map and persists it.
+// If flushDelay is 0, writes immediately; otherwise schedules a debounced write.
+func (c *JSONCache[K, V]) ReplaceAll(newData map[K]V) {
+	c.mu.Lock()
+	c.data = newData
+	c.loaded = true
+	if c.flushDelay == 0 {
+		snapshot := c.snapshotLocked()
+		c.mu.Unlock()
+		c.writeToDisk(snapshot)
+		return
+	}
+	if c.flushTimer != nil {
+		c.flushTimer.Stop()
+	}
+	c.flushTimer = time.AfterFunc(c.flushDelay, c.Flush)
+	c.mu.Unlock()
+}
+
+// SetOrDelete sets a key to a value or deletes it, then persists the change.
+// If flushDelay is 0, writes immediately; otherwise schedules a debounced write.
+func (c *JSONCache[K, V]) SetOrDelete(key K, value V, shouldDelete bool) {
+	c.mu.Lock()
+	c.ensureLoadedLocked()
+	if shouldDelete {
+		delete(c.data, key)
+	} else {
+		c.data[key] = value
+	}
+	if c.flushDelay == 0 {
+		snapshot := c.snapshotLocked()
+		c.mu.Unlock()
+		c.writeToDisk(snapshot)
+		return
+	}
+	if c.flushTimer != nil {
+		c.flushTimer.Stop()
+	}
+	c.flushTimer = time.AfterFunc(c.flushDelay, c.Flush)
+	c.mu.Unlock()
+}
+
+// FilterInPlace removes entries that don't satisfy the predicate,
+// then schedules a debounced flush of the filtered cache.
+// The predicate returns true for entries to keep, false to remove.
+func (c *JSONCache[K, V]) FilterInPlace(keep func(K, V) bool) {
+	c.mu.Lock()
+	if c.data == nil {
+		c.data = make(map[K]V)
+		c.loaded = true
+	}
+	for appID, entry := range c.data {
+		if !keep(appID, entry) {
+			delete(c.data, appID)
+		}
+	}
+	if c.flushTimer != nil {
+		c.flushTimer.Stop()
+	}
+	c.flushTimer = time.AfterFunc(c.flushDelay, c.Flush)
+	c.mu.Unlock()
+}
+
+// ClearAndDeleteFile clears the cache to empty, cancels any pending flush,
+// and deletes the on-disk cache file.
+func (c *JSONCache[K, V]) ClearAndDeleteFile() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.flushTimer != nil {
+		c.flushTimer.Stop()
+		c.flushTimer = nil
+	}
+	c.data = make(map[K]V)
+	c.loaded = true
+
+	p := c.filePath()
+	if p != "" {
+		os.Remove(p)
+	}
 }
 
 // Reset clears the in-memory cache (e.g. on Steam account switch) without

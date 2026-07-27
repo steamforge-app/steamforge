@@ -30,10 +30,5 @@ func LoadGameCache() map[uint32]CachedGame {
 
 // SaveGameCache stores the entire game cache and writes it synchronously to disk.
 func SaveGameCache(games map[uint32]CachedGame) {
-	gameCacheStore.mu.Lock()
-	gameCacheStore.ensureLoadedLocked()
-	gameCacheStore.data = games
-	snapshot := gameCacheStore.snapshotLocked()
-	gameCacheStore.mu.Unlock()
-	gameCacheStore.writeToDisk(snapshot)
+	gameCacheStore.ReplaceAll(games)
 }

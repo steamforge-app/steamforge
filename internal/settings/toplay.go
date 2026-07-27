@@ -27,14 +27,5 @@ func LoadToPlayList() map[uint32]bool {
 // the change to disk immediately — toggles are rare, deliberate user clicks,
 // not a bulk scan, so no debounce is needed here (unlike achievement_cache.go).
 func SetToPlay(appID uint32, want bool) {
-	toPlayCacheStore.mu.Lock()
-	toPlayCacheStore.ensureLoadedLocked()
-	if want {
-		toPlayCacheStore.data[appID] = true
-	} else {
-		delete(toPlayCacheStore.data, appID)
-	}
-	snapshot := toPlayCacheStore.snapshotLocked()
-	toPlayCacheStore.mu.Unlock()
-	toPlayCacheStore.writeToDisk(snapshot)
+	toPlayCacheStore.SetOrDelete(appID, true, !want)
 }

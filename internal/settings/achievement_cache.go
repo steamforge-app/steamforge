@@ -1,9 +1,7 @@
 package settings
 
 import (
-	"os"
 	"path/filepath"
-	"time"
 )
 
 type AchievementCount struct {
@@ -35,48 +33,19 @@ func LoadAchievementCache() map[uint32]AchievementCount {
 
 // ClearAchievementCache clears all achievement data and deletes the cache file.
 func ClearAchievementCache() {
-	achCacheStore.mu.Lock()
-	defer achCacheStore.mu.Unlock()
-	if achCacheStore.flushTimer != nil {
-		achCacheStore.flushTimer.Stop()
-		achCacheStore.flushTimer = nil
-	}
-	achCacheStore.data = make(map[uint32]AchievementCount)
-	achCacheStore.loaded = true
-
-	p := cacheFilePath()
-	if p != "" {
-		os.Remove(p)
-	}
+	achCacheStore.ClearAndDeleteFile()
 }
 
 // ClearNonPerfectedCache removes all entries except:
 //   - Perfected games (achieved == total, total > 0)
 //   - Released games with no achievements (total == 0, not early access)
 func ClearNonPerfectedCache() {
-	achCacheStore.mu.Lock()
-	defer achCacheStore.mu.Unlock()
-	if achCacheStore.flushTimer != nil {
-		achCacheStore.flushTimer.Stop()
-		achCacheStore.flushTimer = nil
-	}
-
-	if achCacheStore.data == nil {
-		achCacheStore.data = make(map[uint32]AchievementCount)
-		achCacheStore.loaded = true
-		return
-	}
-
-	for appID, entry := range achCacheStore.data {
+	achCacheStore.FilterInPlace(func(_ uint32, entry AchievementCount) bool {
 		isPerfected := entry.Total > 0 && entry.Achieved == entry.Total
 		isOldReleaseNoAchievements := entry.Total == 0 &&
 			entry.ReleaseDate != "" && entry.ReleaseDate != "unreleased"
-		if !isPerfected && !isOldReleaseNoAchievements {
-			delete(achCacheStore.data, appID)
-		}
-	}
-
-	achCacheStore.flushTimer = time.AfterFunc(cacheFlushDelay, achCacheStore.Flush)
+		return isPerfected || isOldReleaseNoAchievements
+	})
 }
 
 // SaveAchievementCounts updates the in-memory cache and schedules a debounced disk write.
