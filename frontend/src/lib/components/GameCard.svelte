@@ -9,6 +9,7 @@
   import { showGameContextMenu } from '../utils/context-menu';
   import { toPlayList, toggleToPlay } from '../stores/toplay';
   import { fetchHLTBIfMissing } from '../utils/hltb-lazy-fetch';
+  import { deriveGameCardState } from '../utils/game-card-state';
 
   interface Props {
     game: GameInfo;
@@ -31,16 +32,11 @@
     }
   }
 
-  let counts = $derived($achievementCounts[String(game.appId)]);
-  let hasAchievementData = $derived(counts && counts.total > 0 && counts.achieved >= 0);
-  let completionPercent = $derived(hasAchievementData ? Math.round((counts!.achieved / counts!.total) * 100) : -1);
-  let isFullyCompleted = $derived(hasAchievementData && counts!.achieved === counts!.total);
-  let isEarlyAccess = $derived(counts?.earlyAccess === true);
-  let isProtected = $derived(counts?.protected === true);
+  let cardState = $derived(deriveGameCardState(game.appId, $achievementCounts, $playtimes, $hltbCache));
+  let completionPercent = $derived(cardState.hasAchievementData ? Math.round((cardState.counts!.achieved / cardState.counts!.total) * 100) : -1);
+  let isEarlyAccess = $derived(cardState.counts?.earlyAccess === true);
+  let isProtected = $derived(cardState.counts?.protected === true);
   let isOnToPlayList = $derived($toPlayList.has(game.appId));
-  let playtimeHours = $derived($playtimes[String(game.appId)]);
-  let hltbMain = $derived($hltbCache[String(game.appId)]?.main);
-  let hltbCompletionist = $derived($hltbCache[String(game.appId)]?.completionist);
 
   $effect(() => {
     fetchHLTBIfMissing(game.appId, game.name);
@@ -143,7 +139,7 @@
   <!-- Inner card: tilts via JS transform -->
   <div
     bind:this={cardEl}
-    class="rounded-lg overflow-hidden bg-steam-surface border {isFullyCompleted ? 'border-amber-500/50 group-hover:border-amber-400 shadow-lg shadow-amber-500/10 group-hover:shadow-xl group-hover:shadow-amber-500/20' : 'border-steam-border group-hover:border-steam-primary/50 group-hover:shadow-lg group-hover:shadow-steam-primary/10'}"
+    class="rounded-lg overflow-hidden bg-steam-surface border {cardState.isFullyCompleted ? 'border-amber-500/50 group-hover:border-amber-400 shadow-lg shadow-amber-500/10 group-hover:shadow-xl group-hover:shadow-amber-500/20' : 'border-steam-border group-hover:border-steam-primary/50 group-hover:shadow-lg group-hover:shadow-steam-primary/10'}"
     style="will-change: transform; transition: border-color 200ms, box-shadow 200ms;"
   >
     <div class="aspect-[460/215] bg-steam-input relative overflow-hidden">
@@ -165,9 +161,9 @@
         </div>
       {/if}
     </div>
-    {#if counts && counts.total > 0}
+    {#if cardState.counts && cardState.counts.total > 0}
       <div class="relative h-4 bg-black/40">
-        <div class="absolute left-0 top-0 bottom-0 {isFullyCompleted ? 'gold-bar' : 'bg-steam-primary/80'}" style="width: {completionPercent}%"></div>
+        <div class="absolute left-0 top-0 bottom-0 {cardState.isFullyCompleted ? 'gold-bar' : 'bg-steam-primary/80'}" style="width: {completionPercent}%"></div>
       </div>
     {:else}
       <div class="h-4 bg-black/40"></div>
@@ -178,14 +174,14 @@
           {game.name || `App ${game.appId}`}
         </h3>
         <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-          {#if playtimeHours}
-            <span class="text-xs text-sky-400">Played {formatHoursMinutes(playtimeHours)}</span>
+          {#if cardState.playtimeHours}
+            <span class="text-xs text-sky-400">Played {formatHoursMinutes(cardState.playtimeHours)}</span>
           {/if}
-          {#if hltbMain}
-            <span class="text-xs"><span class="text-white/35">Main</span> {formatHoursMinutes(hltbMain)}</span>
+          {#if cardState.hltbMain}
+            <span class="text-xs"><span class="text-white/35">Main</span> {formatHoursMinutes(cardState.hltbMain)}</span>
           {/if}
-          {#if hltbCompletionist}
-            <span class="text-xs"><span class="text-white/35">100%</span> {formatHoursMinutes(hltbCompletionist)}</span>
+          {#if cardState.hltbCompletionist}
+            <span class="text-xs"><span class="text-white/35">100%</span> {formatHoursMinutes(cardState.hltbCompletionist)}</span>
           {/if}
         </div>
       </div>
@@ -242,11 +238,11 @@
       {/if}
     </div>
     <div class="h-0 flex items-center justify-center relative z-10">
-      {#if hasAchievementData}
-        <span class="text-xs font-bold text-white px-2 py-0.5 rounded-full {isFullyCompleted ? 'bg-amber-500/90' : 'bg-black/60'}" style="text-shadow: 0 1px 2px rgba(0,0,0,0.8); backdrop-filter: blur(4px)">
-          {#if isProtected}<svg class="w-3 h-3 inline-block -mt-px mr-0.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>{/if}{counts.achieved}/{counts.total}
+      {#if cardState.hasAchievementData}
+        <span class="text-xs font-bold text-white px-2 py-0.5 rounded-full {cardState.isFullyCompleted ? 'bg-amber-500/90' : 'bg-black/60'}" style="text-shadow: 0 1px 2px rgba(0,0,0,0.8); backdrop-filter: blur(4px)">
+          {#if isProtected}<svg class="w-3 h-3 inline-block -mt-px mr-0.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>{/if}{cardState.counts!.achieved}/{cardState.counts!.total}
         </span>
-      {:else if counts && counts.total === 0}
+      {:else if cardState.counts && cardState.counts.total === 0}
         <span class="text-[11px] px-2 py-0.5 rounded-full {isEarlyAccess ? 'text-blue-300 bg-blue-500/30' : 'text-steam-text-dim bg-black/50'}" style="text-shadow: 0 1px 2px rgba(0,0,0,0.8)">{isEarlyAccess ? 'Early Access' : 'No achievements'}</span>
       {:else}
         <span class="text-[11px] text-steam-text-dim px-2 py-0.5 rounded-full bg-black/50" style="text-shadow: 0 1px 2px rgba(0,0,0,0.8)">&middot;&middot;&middot;</span>

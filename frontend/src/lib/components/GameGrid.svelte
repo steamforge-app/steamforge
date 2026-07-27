@@ -1,5 +1,6 @@
 <script lang="ts">
   import { filteredGames } from '../stores/games';
+  import type { GameInfo } from '../stores/games';
   import { settings, updateSetting, setSortColumn } from '../stores/settings';
   import type { Settings } from '../stores/settings';
   import GameCard from './GameCard.svelte';
@@ -83,6 +84,61 @@
   </div>
 {/snippet}
 
+{#snippet gameSection(games: GameInfo[], label: string, isOpen: boolean, onToggle: () => void)}
+  <div>
+    <button
+      onclick={onToggle}
+      class="sticky top-0 z-20 w-full flex items-center gap-2 px-4 py-2.5 bg-steam-bg/95 backdrop-blur-sm
+        text-steam-text text-sm font-medium cursor-pointer hover:bg-steam-hover transition-colors border-b border-steam-border/50"
+    >
+      <svg
+        class="w-4 h-4 transition-transform duration-200 {isOpen ? 'rotate-90' : ''}"
+        fill="currentColor" viewBox="0 0 20 20"
+      >
+        <path d="M6.293 4.293a1 1 0 011.414 0L14 10.586l-6.293 6.293a1 1 0 01-1.414-1.414L11.172 10.586 6.293 5.707a1 1 0 010-1.414z" />
+      </svg>
+      {label}
+      <span class="text-xs text-steam-text bg-steam-surface-light/80 px-1.5 py-0.5 rounded-full">
+        {games.length}
+      </span>
+    </button>
+    {#if isOpen}
+      {#if $settings.viewMode === 'list'}
+        <div>
+          {@render listHeader()}
+          <VirtualGrid
+            {scrollContainer}
+            items={games}
+            columnCount={1}
+            rowHeight={LIST_ROW_HEIGHT}
+            keyFn={(game) => game.appId}
+          >
+            {#snippet children(game)}
+              <GameListRow {game} />
+            {/snippet}
+          </VirtualGrid>
+        </div>
+      {:else}
+        <div class="p-4">
+          <VirtualGrid
+            {scrollContainer}
+            items={games}
+            {columnCount}
+            rowHeight={gridRowHeight}
+            class="grid"
+            style="grid-template-columns: repeat({columnCount}, 1fr); gap: {GAP}px"
+            keyFn={(game) => game.appId}
+          >
+            {#snippet children(game)}
+              <GameCard {game} />
+            {/snippet}
+          </VirtualGrid>
+        </div>
+      {/if}
+    {/if}
+  </div>
+{/snippet}
+
 {#if $filteredGames.length === 0}
   <div class="flex-1 flex items-center justify-center text-steam-text-dim">
     <p>No games found</p>
@@ -93,113 +149,10 @@
     class="flex-1 overflow-y-auto min-h-0"
   >
     {#if installedGames.length > 0}
-      <div>
-        <button
-          onclick={toggleInstalled}
-          class="sticky top-0 z-20 w-full flex items-center gap-2 px-4 py-2.5 bg-steam-bg/95 backdrop-blur-sm
-            text-steam-text text-sm font-medium cursor-pointer hover:bg-steam-hover transition-colors border-b border-steam-border/50"
-        >
-          <svg
-            class="w-4 h-4 transition-transform duration-200 {$settings.installedOpen ? 'rotate-90' : ''}"
-            fill="currentColor" viewBox="0 0 20 20"
-          >
-            <path d="M6.293 4.293a1 1 0 011.414 0L14 10.586l-6.293 6.293a1 1 0 01-1.414-1.414L11.172 10.586 6.293 5.707a1 1 0 010-1.414z" />
-          </svg>
-          Installed Games
-          <span class="text-xs text-steam-text bg-steam-surface-light/80 px-1.5 py-0.5 rounded-full">
-            {installedGames.length}
-          </span>
-        </button>
-        {#if $settings.installedOpen}
-          {#if $settings.viewMode === 'list'}
-            <div>
-              {@render listHeader()}
-              <VirtualGrid
-                {scrollContainer}
-                items={installedGames}
-                columnCount={1}
-                rowHeight={LIST_ROW_HEIGHT}
-                keyFn={(game) => game.appId}
-              >
-                {#snippet children(game)}
-                  <GameListRow {game} />
-                {/snippet}
-              </VirtualGrid>
-            </div>
-          {:else}
-            <div class="p-4">
-              <VirtualGrid
-                {scrollContainer}
-                items={installedGames}
-                {columnCount}
-                rowHeight={gridRowHeight}
-                class="grid"
-                style="grid-template-columns: repeat({columnCount}, 1fr); gap: {GAP}px"
-                keyFn={(game) => game.appId}
-              >
-                {#snippet children(game)}
-                  <GameCard {game} />
-                {/snippet}
-              </VirtualGrid>
-            </div>
-          {/if}
-        {/if}
-      </div>
+      {@render gameSection(installedGames, 'Installed Games', $settings.installedOpen, toggleInstalled)}
     {/if}
-
     {#if otherGames.length > 0}
-      <div>
-        <button
-          onclick={toggleOther}
-          class="sticky top-0 z-20 w-full flex items-center gap-2 px-4 py-2.5 bg-steam-bg/95 backdrop-blur-sm
-            text-steam-text text-sm font-medium cursor-pointer hover:bg-steam-hover transition-colors border-b border-steam-border/50"
-        >
-          <svg
-            class="w-4 h-4 transition-transform duration-200 {$settings.otherOpen ? 'rotate-90' : ''}"
-            fill="currentColor" viewBox="0 0 20 20"
-          >
-            <path d="M6.293 4.293a1 1 0 011.414 0L14 10.586l-6.293 6.293a1 1 0 01-1.414-1.414L11.172 10.586 6.293 5.707a1 1 0 010-1.414z" />
-          </svg>
-          Other Games
-          <span class="text-xs text-steam-text bg-steam-surface-light/80 px-1.5 py-0.5 rounded-full">
-            {otherGames.length}
-          </span>
-        </button>
-        {#if $settings.otherOpen}
-          {#if $settings.viewMode === 'list'}
-            <div>
-              {@render listHeader()}
-              <VirtualGrid
-                {scrollContainer}
-                items={otherGames}
-                columnCount={1}
-                rowHeight={LIST_ROW_HEIGHT}
-                keyFn={(game) => game.appId}
-              >
-                {#snippet children(game)}
-                  <GameListRow {game} />
-                {/snippet}
-              </VirtualGrid>
-            </div>
-          {:else}
-            <div class="p-4">
-              <VirtualGrid
-                {scrollContainer}
-                items={otherGames}
-                {columnCount}
-                rowHeight={gridRowHeight}
-                class="grid"
-                style="grid-template-columns: repeat({columnCount}, 1fr); gap: {GAP}px"
-                keyFn={(game) => game.appId}
-              >
-                {#snippet children(game)}
-                  <GameCard {game} />
-                {/snippet}
-              </VirtualGrid>
-            </div>
-          {/if}
-        {/if}
-      </div>
+      {@render gameSection(otherGames, 'Other Games', $settings.otherOpen, toggleOther)}
     {/if}
   </div>
 {/if}

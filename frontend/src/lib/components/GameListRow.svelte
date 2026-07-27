@@ -9,6 +9,7 @@
   import { showGameContextMenu } from '../utils/context-menu';
   import { toPlayList, toggleToPlay } from '../stores/toplay';
   import { fetchHLTBIfMissing } from '../utils/hltb-lazy-fetch';
+  import { deriveGameCardState } from '../utils/game-card-state';
 
   interface Props {
     game: GameInfo;
@@ -29,17 +30,12 @@
     }
   }
 
-  let counts = $derived($achievementCounts[String(game.appId)]);
-  let hasAchievementData = $derived(counts && counts.total > 0 && counts.achieved >= 0);
-  let isFullyCompleted = $derived(hasAchievementData && counts!.achieved === counts!.total);
-  let isEarlyAccess = $derived(counts?.earlyAccess && counts.total === 0);
+  let cardState = $derived(deriveGameCardState(game.appId, $achievementCounts, $playtimes, $hltbCache));
+  let isEarlyAccess = $derived(cardState.counts?.earlyAccess && cardState.counts.total === 0);
   let isOnToPlayList = $derived($toPlayList.has(game.appId));
-  let playtimeHours = $derived($playtimes[String(game.appId)]);
-  let hltbMain = $derived($hltbCache[String(game.appId)]?.main);
-  let hltbCompletionist = $derived($hltbCache[String(game.appId)]?.completionist);
-  let playtimeLabel = $derived(playtimeHours ? formatHoursMinutes(playtimeHours) : '');
-  let hltbMainLabel = $derived(hltbMain ? formatHoursMinutes(hltbMain) : '');
-  let hltbCompletionistLabel = $derived(hltbCompletionist ? formatHoursMinutes(hltbCompletionist) : '');
+  let playtimeLabel = $derived(cardState.playtimeHours ? formatHoursMinutes(cardState.playtimeHours) : '');
+  let hltbMainLabel = $derived(cardState.hltbMain ? formatHoursMinutes(cardState.hltbMain) : '');
+  let hltbCompletionistLabel = $derived(cardState.hltbCompletionist ? formatHoursMinutes(cardState.hltbCompletionist) : '');
   let combinedLabel = $derived(
     [playtimeLabel, hltbMainLabel, hltbCompletionistLabel].filter(Boolean).join(' / ')
   );
@@ -142,6 +138,6 @@
     <span class="text-sm text-steam-text truncate block">{game.name || `App ${game.appId}`}</span>
   </div>
   <span class="text-xs text-steam-text-dim w-36 text-right flex-shrink-0 truncate" title={combinedTitle}>{combinedLabel}</span>
-  <span class="text-xs w-16 text-right flex-shrink-0 {isFullyCompleted ? 'text-amber-400 font-medium' : isEarlyAccess ? 'text-blue-400 font-medium' : 'text-steam-text-dim'}">{hasAchievementData ? `${counts!.achieved}/${counts!.total}` : isEarlyAccess ? 'EA' : counts && counts.total > 0 ? `${counts.total}` : ''}</span>
+  <span class="text-xs w-16 text-right flex-shrink-0 {cardState.isFullyCompleted ? 'text-amber-400 font-medium' : isEarlyAccess ? 'text-blue-400 font-medium' : 'text-steam-text-dim'}">{cardState.hasAchievementData ? `${cardState.counts!.achieved}/${cardState.counts!.total}` : isEarlyAccess ? 'EA' : cardState.counts && cardState.counts.total > 0 ? `${cardState.counts.total}` : ''}</span>
   <span class="text-xs text-steam-text-dim w-20 text-right flex-shrink-0">{game.appId}</span>
 </div>
