@@ -17,8 +17,8 @@ import (
 
 const (
 	hltbBase       = "https://howlongtobeat.com"
-	hltbInitPath   = "/api/bleed/init"
-	hltbSearchPath = "/api/bleed"
+	hltbInitPath   = "/api/search/site/init"
+	hltbSearchPath = "/api/search/site"
 	hltbTimeout    = 30 * time.Second
 	hltbTokenTTL   = 5 * time.Minute
 )
